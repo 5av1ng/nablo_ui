@@ -1,0 +1,319 @@
+#![feature(prelude_import)]
+#[prelude_import]
+use std::prelude::rust_2021::*;
+#[macro_use]
+extern crate std;
+use std::sync::{Arc, Mutex};
+use nablo_ui::prelude::*;
+struct TestApp {
+    data: Arc<Mutex<Data>>,
+}
+#[automatically_derived]
+impl ::core::fmt::Debug for TestApp {
+    #[inline]
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        ::core::fmt::Formatter::debug_struct_field1_finish(
+            f,
+            "TestApp",
+            "data",
+            &&self.data,
+        )
+    }
+}
+#[automatically_derived]
+impl ::core::clone::Clone for TestApp {
+    #[inline]
+    fn clone(&self) -> TestApp {
+        TestApp {
+            data: ::core::clone::Clone::clone(&self.data),
+        }
+    }
+}
+#[automatically_derived]
+impl ::core::default::Default for TestApp {
+    #[inline]
+    fn default() -> TestApp {
+        TestApp {
+            data: ::core::default::Default::default(),
+        }
+    }
+}
+struct Data {
+    value: u32,
+}
+#[automatically_derived]
+impl ::core::fmt::Debug for Data {
+    #[inline]
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        ::core::fmt::Formatter::debug_struct_field1_finish(
+            f,
+            "Data",
+            "value",
+            &&self.value,
+        )
+    }
+}
+#[automatically_derived]
+impl ::core::clone::Clone for Data {
+    #[inline]
+    fn clone(&self) -> Data {
+        Data {
+            value: ::core::clone::Clone::clone(&self.value),
+        }
+    }
+}
+#[automatically_derived]
+impl ::core::default::Default for Data {
+    #[inline]
+    fn default() -> Data {
+        Data {
+            value: ::core::default::Default::default(),
+        }
+    }
+}
+enum Sig {
+    BgClicked,
+    Clicked,
+    #[allow(dead_code)]
+    Dragged(Vec2),
+}
+#[automatically_derived]
+impl ::core::fmt::Debug for Sig {
+    #[inline]
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        match self {
+            Sig::BgClicked => ::core::fmt::Formatter::write_str(f, "BgClicked"),
+            Sig::Clicked => ::core::fmt::Formatter::write_str(f, "Clicked"),
+            Sig::Dragged(__self_0) => {
+                ::core::fmt::Formatter::debug_tuple_field1_finish(
+                    f,
+                    "Dragged",
+                    &__self_0,
+                )
+            }
+        }
+    }
+}
+#[automatically_derived]
+impl ::core::clone::Clone for Sig {
+    #[inline]
+    fn clone(&self) -> Sig {
+        match self {
+            Sig::BgClicked => Sig::BgClicked,
+            Sig::Clicked => Sig::Clicked,
+            Sig::Dragged(__self_0) => Sig::Dragged(::core::clone::Clone::clone(__self_0)),
+        }
+    }
+}
+impl Signal for Sig {}
+impl App<Sig> for TestApp {
+    fn on_start(&mut self, ctx: &mut Context<Sig>) {
+        ctx.set_advance_factor(0, 0.75);
+        let data = self.data.clone();
+        {
+            ctx.layout.clear();
+            {
+                let __id = ::nablo_ui::layout::ROOT_LAYOUT_ID;
+                ctx.layout
+                    .insert_root_widget(
+                        Card::new(LayoutStrategy::default())
+                            .rounding(Vec4::same(16.0))
+                            .on_click(|| Sig::BgClicked)
+                            .padding(Vec2::same(16.0))
+                            .scroll(Scroll::both()),
+                    );
+                ctx.layout
+                    .add_widget(__id, Button::new("测试").on_click(|| Sig::Clicked))
+                    .expect("missing root widget");
+                ctx.layout
+                    .add_widget(
+                        __id,
+                        Button::new("Ok")
+                            .on_click(|| Sig::Clicked)
+                            .style(ButtonStyle::Text),
+                    )
+                    .expect("missing root widget");
+                ctx.layout
+                    .add_widget(
+                        __id,
+                        Button::new("Click me!")
+                            .on_click(|| Sig::Clicked)
+                            .style(ButtonStyle::Secondary),
+                    )
+                    .expect("missing root widget");
+                ctx.layout
+                    .add_widget(
+                        __id,
+                        Button::new("cant click")
+                            .on_click(|| Sig::Clicked)
+                            .style(ButtonStyle::Disabled),
+                    )
+                    .expect("missing root widget");
+                ctx.layout
+                    .add_widget(__id, Divider::new(false))
+                    .expect("missing root widget");
+                ctx.layout
+                    .add_widget(__id, Label::title("This is a title"))
+                    .expect("missing root widget");
+                ctx.layout
+                    .add_widget(__id, Label::new("这是一个标签"))
+                    .expect("missing root widget");
+                ctx.layout
+                    .add_widget(
+                        __id,
+                        Label::new(
+                            "this is a long label that should break into multiple lines if possible",
+                        ),
+                    )
+                    .expect("missing root widget");
+                ctx.layout
+                    .add_widget(__id, Divider::new(false))
+                    .expect("missing root widget");
+                {
+                    let __id = ctx
+                        .layout
+                        .add_widget(__id, Collapse::new("Collapse me!"))
+                        .expect("missing root widget");
+                    ctx.layout.alias_widget(__id, "Test");
+                    ctx.layout
+                        .add_widget(
+                            __id,
+                            Label::new("This is the content of the collapse"),
+                        )
+                        .expect("missing root widget");
+                    ctx.layout
+                        .add_widget(
+                            __id,
+                            Label::new("这是一个折叠面板的内容"),
+                        )
+                        .expect("missing root widget");
+                    ctx.layout
+                        .add_widget(
+                            __id,
+                            Button::new("这是个被折叠的按钮")
+                                .on_click(|| Sig::Clicked)
+                                .style(ButtonStyle::Secondary),
+                        )
+                        .expect("missing root widget");
+                    {
+                        let __id = ctx
+                            .layout
+                            .add_widget(
+                                __id,
+                                Card::new(LayoutStrategy::default())
+                                    .set_size(Vec2::new(128.0 * 3.0, 128.0))
+                                    .on_click(|| Sig::BgClicked)
+                                    .padding(Vec2::y(16.0))
+                                    .draw_stroke(false),
+                            )
+                            .expect("missing root widget");
+                        ctx.layout
+                            .add_widget(
+                                __id,
+                                Label::new("This is the content of the inner card"),
+                            )
+                            .expect("missing root widget");
+                        ctx.layout
+                            .add_widget(
+                                __id,
+                                Label::new("这是一个内嵌卡片的内容"),
+                            )
+                            .expect("missing root widget");
+                        ctx.layout
+                            .add_widget(
+                                __id,
+                                Button::new("这是个内嵌卡片的按钮")
+                                    .on_click(|| Sig::Clicked)
+                                    .style(ButtonStyle::Text),
+                            )
+                            .expect("missing root widget");
+                    };
+                    ctx.layout
+                        .add_widget(__id, Divider::new(false))
+                        .expect("missing root widget");
+                    ctx.layout
+                        .add_widget(
+                            __id,
+                            Reactive::new(
+                                Label::new("Counter: 0"),
+                                move |inner| {
+                                    if let Ok(data) = data.lock() {
+                                        inner
+                                            .text(
+                                                ::alloc::__export::must_use({
+                                                    let res = ::alloc::fmt::format(
+                                                        format_args!("Counter: {0}", data.value),
+                                                    );
+                                                    res
+                                                }),
+                                            )
+                                    } else {
+                                        inner
+                                    }
+                                },
+                            ),
+                        )
+                        .expect("missing root widget");
+                };
+            };
+        };
+        {
+            let __id = ctx.layout.alias_to_id("Test").expect("missing alias");
+            ctx.layout.replace_widget(__id, Collapse::new("Collapse me!"));
+            ctx.layout
+                .add_widget(__id, Button::new("测试").on_click(|| Sig::Clicked))
+                .expect("missing root widget");
+        };
+        {
+            let __id = ROOT_LAYOUT_ID;
+            {
+                let __id = ctx
+                    .layout
+                    .add_widget(
+                        __id,
+                        Collapse::new("Collapse me but with a different title!"),
+                    )
+                    .expect("missing root widget");
+                ctx.layout
+                    .add_widget(__id, Button::new("测试").on_click(|| Sig::Clicked))
+                    .expect("missing root widget");
+            };
+        };
+        {
+            ::std::io::_print(format_args!("Starting...\n"));
+        };
+    }
+    fn on_exit(&mut self, _ctx: &mut Context<Sig>) {
+        {
+            ::std::io::_print(format_args!("Exiting...\n"));
+        };
+    }
+    fn on_signal(&mut self, _: &mut Context<Sig>, signal: SignalWrapper<Sig>) {
+        if match signal.signal {
+            Sig::Dragged(_) => true,
+            _ => false,
+        } {
+            return;
+        }
+        if match signal.signal {
+            Sig::Clicked => true,
+            _ => false,
+        } {
+            self.data.lock().unwrap().value += 1;
+        }
+        {
+            ::std::io::_print(
+                format_args!(
+                    "Received signal: {0:?} from {1}.\n",
+                    signal.signal,
+                    signal.from,
+                ),
+            );
+        };
+    }
+}
+fn main() {
+    let app = TestApp::default();
+    let mut mng = Manager::new(app, MAPLE.to_vec(), 0).title("Test");
+    mng.run();
+}
