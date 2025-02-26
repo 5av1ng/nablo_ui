@@ -59,8 +59,8 @@ pub(crate) struct WgpuState<'a> {
 	pub uniform_and_stack: UniformBuffer,
 	// pub stack: StorageBuffer,
 	pub commands: StorageBuffer,
-	// pub commands_2: StorageBuffer,
-	// pub is_using_commands_2: bool,
+	pub commands_2: StorageBuffer,
+	pub is_using_commands_2: bool,
 	pub texture_pool: TexturePool,
 	pub font_render: FontRender,
 	pub render_texture: wgpu::Texture,
@@ -276,12 +276,12 @@ pub(crate) fn crate_wgpu_state<'a>(window: Arc<Window>, size: Vec2) -> WgpuState
 		wgpu::BufferBindingType::Storage { read_only: true },
 	);
 
-	// let (commands2_layout, commands2_bind_group) = create_bind_group_with_buffer(
-	// 	&device,
-	// 	&commands_2_buffer,
-	// 	"Commands Bind Group 2",
-	// 	wgpu::BufferBindingType::Storage { read_only: true },
-	// );
+	let (commands2_layout, commands2_bind_group) = create_bind_group_with_buffer(
+		&device,
+		&commands_2_buffer,
+		"Commands Bind Group 2",
+		wgpu::BufferBindingType::Storage { read_only: true },
+	);
 
 
 	let commands = StorageBuffer {
@@ -291,12 +291,12 @@ pub(crate) fn crate_wgpu_state<'a>(window: Arc<Window>, size: Vec2) -> WgpuState
 		layout: commands_layout,
 	};
 
-	// let commands_2 = StorageBuffer {
-	// 	buffer: commands_2_buffer,
-	// 	bind_group: commands2_bind_group,
-	// 	size: 1024 * std::mem::size_of::<DrawCommandGpu>() as u64,
-	// 	layout: commands2_layout,
-	// };
+	let commands_2 = StorageBuffer {
+		buffer: commands_2_buffer,
+		bind_group: commands2_bind_group,
+		size: 1024 * std::mem::size_of::<DrawCommandGpu>() as u64,
+		layout: commands2_layout,
+	};
 
 	let wgpu_texture = create_new_texture_array(
 		&device, 
@@ -363,8 +363,8 @@ pub(crate) fn crate_wgpu_state<'a>(window: Arc<Window>, size: Vec2) -> WgpuState
 		render_texture,
 		render_view,
 		is_first_frame: true,
-		// is_using_commands_2: false,
-		// commands_2,
+		is_using_commands_2: false,
+		commands_2,
 	}
 }
 
@@ -457,7 +457,7 @@ impl WgpuState<'_> {
 			&[
 				&self.uniform_and_stack.layout, 
 				&self.commands.layout,
-				// &self.commands_2.layout,  
+				&self.commands_2.layout,  
 				&self.texture_pool.texture_array[0].layout,
 				&self.font_render.bind_group_layout,
 			]
@@ -472,12 +472,12 @@ impl WgpuState<'_> {
 			mapped_at_creation: false,
 		});
 
-		// let new_buffer_2 = self.device.create_buffer(&wgpu::BufferDescriptor {
-		// 	label: Some("Commands 2 Buffer"),
-		// 	size: new_size,
-		// 	usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::STORAGE,
-		// 	mapped_at_creation: false,
-		// });
+		let new_buffer_2 = self.device.create_buffer(&wgpu::BufferDescriptor {
+			label: Some("Commands 2 Buffer"),
+			size: new_size,
+			usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::STORAGE,
+			mapped_at_creation: false,
+		});
 
 		let (layout, bind_group) = create_bind_group_with_buffer(
 			&self.device,
@@ -486,12 +486,12 @@ impl WgpuState<'_> {
 			wgpu::BufferBindingType::Storage { read_only: true },
 		);
 
-		// let (layout_2, bind_group_2) = create_bind_group_with_buffer(
-		// 	&self.device,
-		// 	&new_buffer,
-		// 	"Commands 2 Bind Group",
-		// 	wgpu::BufferBindingType::Storage { read_only: true },
-		// );
+		let (layout_2, bind_group_2) = create_bind_group_with_buffer(
+			&self.device,
+			&new_buffer,
+			"Commands 2 Bind Group",
+			wgpu::BufferBindingType::Storage { read_only: true },
+		);
 		
 
 		self.commands.buffer.destroy();
@@ -500,11 +500,11 @@ impl WgpuState<'_> {
 		self.commands.size = new_size;
 		self.commands.layout = layout;
 
-		// self.commands_2.buffer.destroy();
-		// self.commands_2.buffer = new_buffer_2;
-		// self.commands_2.bind_group = bind_group_2;
-		// self.commands_2.size = new_size;
-		// self.commands_2.layout = layout_2;
+		self.commands_2.buffer.destroy();
+		self.commands_2.buffer = new_buffer_2;
+		self.commands_2.bind_group = bind_group_2;
+		self.commands_2.size = new_size;
+		self.commands_2.layout = layout_2;
 
 		self.update_render_pipeline();
 	}
@@ -577,12 +577,11 @@ impl WgpuState<'_> {
 		
 		self.queue.write_buffer(&self.uniform_and_stack.uniform, 0, bytemuck::bytes_of(&uniform));
 		// self.queue.write_buffer(&self.uniform_and_stack.stack, 0, &EMPTY_STACK_DATA);
-		self.queue.write_buffer(&self.commands.buffer, 0, bytemuck::cast_slice(&commands));
-		// if self.is_using_commands_2 {
-		// 	self.queue.write_buffer(&self.commands.buffer, 0, bytemuck::cast_slice(&commands));
-		// }else {
-		// 	self.queue.write_buffer(&self.commands_2.buffer, 0, bytemuck::cast_slice(&commands));
-		// }
+		if self.is_using_commands_2 {
+			self.queue.write_buffer(&self.commands.buffer, 0, bytemuck::cast_slice(&commands));
+		}else {
+			self.queue.write_buffer(&self.commands_2.buffer, 0, bytemuck::cast_slice(&commands));
+		}
 		self.queue.submit([]);
 			
 		render_area = Rect::from_lt_size(render_area.lt() * uniform.scale_factor, render_area.size() * uniform.scale_factor);
@@ -631,14 +630,13 @@ impl WgpuState<'_> {
 		render_pass.set_scissor_rect(render_area.x as u32, render_area.y as u32, render_area.w as u32, render_area.h as u32);
 		render_pass.set_pipeline(&self.render_pipeline);
 		render_pass.set_bind_group(0, &self.uniform_and_stack.bind_group, &[]);
-		render_pass.set_bind_group(1, &self.commands.bind_group, &[]);
-		// if self.is_using_commands_2 {
-		// 	render_pass.set_bind_group(1, &self.commands_2.bind_group, &[]);
-		// 	self.is_using_commands_2 = false;
-		// }else {
-		// 	render_pass.set_bind_group(1, &self.commands.bind_group, &[]);
-		// 	self.is_using_commands_2 = true;
-		// }
+		if self.is_using_commands_2 {
+			render_pass.set_bind_group(1, &self.commands_2.bind_group, &[]);
+			self.is_using_commands_2 = false;
+		}else {
+			render_pass.set_bind_group(1, &self.commands.bind_group, &[]);
+			self.is_using_commands_2 = true;
+		}
 		// render_pass.set_bind_group(2, &self.stack.bind_group, &[]);
 		render_pass.set_bind_group(2, &self.texture_pool.texture_array[0].bind_group, &[]);
 		render_pass.set_bind_group(3, &self.font_render.bind_group, &[]);

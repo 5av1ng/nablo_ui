@@ -132,6 +132,8 @@ impl App<Sig> for TestApp {
 	fn on_draw_frame(&mut self, ctx: &mut Context<Sig>) {
 		let current = ctx.input_state().program_running_time();
 		let t= current.as_seconds_f32().sin() * 0.5 + 0.5; 
+		let t2= (current.as_seconds_f32() / 2.0).sin() * 0.5 + 0.5; 
+		let t4= (current.as_seconds_f32() / 4.0).sin() * 0.5 + 0.5; 
 		if let Ok(mut data) = self.data.try_borrow_mut() {
 			let delta = current - data.last_frame;
 			data.last_frame = current;
@@ -169,13 +171,13 @@ impl App<Sig> for TestApp {
 				);
 				
 				painter.draw_shape(
-					(Shape::from(BasicShapeData::Circle(Vec2::same(128.0), 32.0)))
-					.lerp(Shape::from(BasicShapeData::Rectangle(Vec2::ZERO, Vec2::same(256.0), Vec4::same(16.0))), t)
+					(Shape::from(BasicShapeData::Circle(Vec2::same(256.0) * t2, 32.0)))
+					.lerp(Shape::from(BasicShapeData::Rectangle(Vec2::ZERO, Vec2::same(256.0), Vec4::same(96.0) * t4)), t)
 				);
 
-				painter.set_fill_mode(PRIMARY_TEXT_COLOR);
+				// painter.set_fill_mode(PRIMARY_TEXT_COLOR);
 
-				painter.draw_text(Vec2::new(0.0, 128.0), 0, 16.0, "这个颜色还挺不错");
+				// painter.draw_text(Vec2::new(0.0, 128.0), 0, 16.0, "这个颜色还挺不错");
 			}, true)
 		});
 	}
