@@ -8,7 +8,7 @@
 /// Due to the memory alignment strategy of the wgpu, the struct actually contains a field which is used for padding.
 #[derive(bytemuck::Pod, bytemuck::Zeroable, Debug, Clone, Copy, Default)]
 #[derive(serde::Deserialize, serde::Serialize)]
-#[repr(C)]
+#[repr(C, align(16))]
 pub struct DrawCommandGpu {
 	/// See [`CommandGpu`] for possible values.
 	pub command: u32,
@@ -21,21 +21,27 @@ pub struct DrawCommandGpu {
 	/// actually done nothing, but it's required to align the struct to 16 bytes.
 	/// The parameter may used by operation.
 	pub parameter: f32,
-	pub(crate) __padding: [u8; 4],
+	// /// The clip rect's left-top x coordinate of the shape.
+	// pub clip_rect_lt_x: f32,
+	// /// The clip rect's left-top y coordinate of the shape.
+	// pub clip_rect_lt_y: f32,
+	// /// The clip rect's right-bottom x coordinate of the shape.
+	// pub clip_rect_rb_x: f32,
+	// /// The clip rect's right-bottom y coordinate of the shape.
+	// pub clip_rect_rb_y: f32,
+	/// See [`OperationGpu`] for possible values.
+	pub smooth_function: u32,
 	/// values may be used by command variants.
 	pub slots: [[f32; 4]; 4],
 	/// The way to combine with the previous content.
 	/// 
 	/// See [`OperationGpu`] for possible values.
 	pub operation: u32,
-	/// The way to smooth the shapes.
-	/// 
-	/// See [`OperationGpu`] for possible values.
-	pub smooth_function: u32,
 	/// The parameter may used by smooth function.
 	pub smooth_parameter: f32,
 	/// The index of the shape to combine with the previous content.
 	pub lhs: u32,
+	pub(crate) __padding: [u8; 4],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -93,7 +99,7 @@ pub enum CommandGpu {
 	/// 4. p2.y
 	/// 5. p3.x
 	/// 6. p3.y
-	DrawQuadHalfPlane = 5,
+	DrawQuadPlane = 5,
 	/// Draw a SDF texture.
 	/// 
 	/// Will expect 5 values in `slot`:
@@ -199,10 +205,10 @@ pub enum CommandGpu {
 	/// \begin{bmatrix}
 	/// m00 & m10 & m20 \\
 	/// m01 & m11 & m21 \\
-	///  0  &  0  &  1  \\
+	/// m02 & m12 & m22 \\
 	/// \end{bmatrix}
 	/// $$
-	SetTransform2D = 12,
+	SetMat3x3 = 12,
 	/// Set the blend mode for the current shape.
 	/// 
 	/// Will expect 1 value in `slot`:

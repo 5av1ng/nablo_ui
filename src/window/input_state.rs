@@ -223,6 +223,14 @@ impl<S: Signal> InputState<S> {
 		self.pressing_touches.get(&id).map(|touch| current - touch.time < DEFAULT_EPSILON_TIME).unwrap_or(false)
 	}
 
+	/// Get all the touches in the given area, repesented by their ids.
+	pub fn get_touch_on(&self, area: impl Into<Rect>) -> Vec<u64> {
+		let area = area.into();
+		let mut out = self.get_touch_pressed_on(area);
+		out.extend(self.get_touch_released_on(area));
+		out
+	}
+
 	/// Get all the touches pressed on the given area, repesented by their ids.
 	pub fn get_touch_pressed_on(&self, area: impl Into<Rect>) -> Vec<u64> {
 		let area = area.into();
@@ -550,7 +558,11 @@ impl<S: Signal> InputState<S> {
 
 	/// Get the touch positions, will also include the mouse position if any.
 	pub fn touch_positions(&self) -> Vec<Vec2> {
-		self.pressing_touches.values().map(|touch| touch.pos).collect::<Vec<_>>()
+		let mut pressing = self.pressing_touches.values().map(|touch| touch.pos).collect::<Vec<_>>();
+		let released = self.released_touches.values().map(|touch| touch.pos).collect::<Vec<_>>();
+		pressing.extend(released);
+		pressing
+
 	}
 
 	/// Send a signal to the app, the id is automatically set to the widget's id which handles the event.
@@ -684,6 +696,12 @@ impl<S: Signal> InputState<S> {
 		self.redraw_requested = true;
 		self.all_dirty = true;
 	}
+
+	// pub(crate) fn no_touch_available(&self) -> bool {
+	// 	self.pressing_touches.values().all(|inner| {
+	// 		inner.using_by.is_some() || inner.id == MOUSE_UNPRESSED_ID
+	// 	})
+	// }
 
 	// pub(crate) fn no_events(&self) -> bool {
 	// 	if !self.window_focused {

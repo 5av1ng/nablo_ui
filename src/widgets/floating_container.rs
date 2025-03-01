@@ -4,7 +4,7 @@ use std::{cell::RefCell, collections::HashMap};
 
 use indexmap::IndexMap;
 
-use crate::{layout::{Layout, LayoutId}, prelude::{InputState, Painter, Rect, Vec2}};
+use crate::{layout::{Layout, LayoutId}, prelude::{InputState, Painter, Rect, Vec2}, App};
 
 use super::{Signal, SignalGenerator, Widget};
 
@@ -12,11 +12,11 @@ use super::{Signal, SignalGenerator, Widget};
 /// 
 /// 
 /// Better use with [`crate::prelude::Card`]
-pub struct FloatingContainer<S: Signal> {
+pub struct FloatingContainer<S: Signal, A: App<Signal = S>> {
 	/// The inner properties of the floating container.
 	pub inner: FloatingContainerInner,
 	/// The signals of the floating container.
-	pub signals: SignalGenerator<S, FloatingContainerInner>,
+	pub signals: SignalGenerator<S, FloatingContainerInner, A>,
 	current_pos: Option<Vec2>,
 	content_size: Option<Vec2>,
 	current_size: Option<Vec2>,
@@ -90,7 +90,7 @@ impl Default for FloatingContainerInner {
 	}
 }
 
-impl<S: Signal> Default for FloatingContainer<S> {
+impl<S: Signal, A: App<Signal = S>> Default for FloatingContainer<S, A> {
 	fn default() -> Self {
 		Self {
 			inner: FloatingContainerInner::default(),
@@ -105,7 +105,7 @@ impl<S: Signal> Default for FloatingContainer<S> {
 	}
 }
 
-impl<S: Signal> FloatingContainer<S> {
+impl<S: Signal, A: App<Signal = S>> FloatingContainer<S, A> {
 	/// Create a new floating container.
 	pub fn new() -> Self {
 		Self::default()
@@ -233,10 +233,11 @@ impl FloatPostion {
 	}
 }
 
-impl<S: Signal> Widget for FloatingContainer<S> {
+impl<S: Signal, A: App<Signal = S>> Widget for FloatingContainer<S, A> {
 	type Signal = S;
+	type Application = A;
 
-	fn size(&self, id: LayoutId, painter: &Painter, layout: &Layout<Self::Signal>) -> Vec2 {
+	fn size(&self, id: LayoutId, painter: &Painter, layout: &Layout<Self::Signal, A>) -> Vec2 {
 		*self.parent_area.borrow_mut() = if let Some(parent_id) = layout.get_parent_id(id) {
 			layout.get_widget_area(parent_id).unwrap_or_default()
 		}else {
@@ -258,7 +259,7 @@ impl<S: Signal> Widget for FloatingContainer<S> {
 
 	fn draw(&mut self, _: &mut Painter, _: Vec2) {}
 
-	fn handle_event(&mut self, input_state: &mut InputState<Self::Signal>, id: LayoutId, _: Rect, _: Vec2) -> bool {
+	fn handle_event(&mut self, app: &mut A, input_state: &mut InputState<Self::Signal>, id: LayoutId, _: Rect, _: Vec2) -> bool {
 		if !self.inner.show {
 			return false;
 		}
@@ -303,6 +304,7 @@ impl<S: Signal> Widget for FloatingContainer<S> {
 		// println!("{}", area);
 
 		let res = self.signals.generate_signals(
+			app,
 			&mut self.inner, 
 			input_state, 
 			id, 
@@ -363,5 +365,9 @@ impl<S: Signal> Widget for FloatingContainer<S> {
 		}else {
 			HashMap::new()
 		}
+	}
+
+	fn continuous_event_handling(&self) -> bool {
+		self.inner.show
 	}
 }

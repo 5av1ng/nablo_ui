@@ -9,6 +9,7 @@ use crate::{math::{color::{Color, Vec4}, transform2d::Transform2D, vec2::Vec2}, 
 /// Note: there's no precedence defined for the operators,
 /// in other words, the order of the caculation will alway be from left to right.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub enum Operator {
 	/// Get the intersection of two shapes.
 	And,
@@ -29,7 +30,8 @@ pub enum Operator {
 }
 
 /// A basic shape defined by its data, fill mode, and blend mode.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct BasicShape {
 	/// The data of the basic shape.
 	pub data: BasicShapeData,
@@ -148,6 +150,7 @@ impl BasicShape {
 
 /// The fill mode of the basic shape.
 #[derive(Debug, Clone, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub enum FillMode {
 	/// Fill the shape with the given color.
 	Color(Color),
@@ -264,7 +267,8 @@ impl Default for FillMode {
 /// 
 /// If you need to draw a general cubic bezier curve, you can use combination of `QuadHalfPlane` shape,
 /// which is simple due to sdf based rendering approach.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub enum BasicShapeData {
 	/// A circle defined by center and radius.
 	Circle(Vec2, f32),
@@ -272,23 +276,18 @@ pub enum BasicShapeData {
 	Triangle(Vec2, Vec2, Vec2),
 	/// A rectangle defined by left-top point, right-bottom point and the corner radius.
 	Rectangle(Vec2, Vec2, Vec4),
-	/// A half plane defined by two points and sign of inequality.
+	/// A half plane defined by two point.
 	/// 
 	/// The plane can be defined by the following formula:
 	/// $$
 	/// (x - x_0) (y_1 - y_0) - (y - y_0) (x_1 - x_0) \ge 0
 	/// $$
 	HalfPlane(Vec2, Vec2),
-	/// A quadratic bezier half plane defined by three points and sign of inequality.
+	/// A quadratic bezier plane defined by three points.
 	/// 
-	/// The whole plane will be split into two parts by drawing the path as follows:
-	/// 1. draw a ray start from the from point and follow by the direction (from - ctrl).
-	/// 2. draw a ray start from the to point and follow by the direction (to - ctrl).
-	/// 3. connect the two rays with a quadratic bezier curve with given points.
-	/// 
-	/// Then defines the concave part as the negative(outside) part of the plane,
+	/// Defines the concave part as the negative(outside) part of the plane,
 	/// the convex part as the positive(inside) part of the plane.
-	QuadHalfPlane(Vec2, Vec2, Vec2),
+	QuadBezierPlane(Vec2, Vec2, Vec2),
 	/// A SDF texture defined by its top-left corner, its right-bottom corner and its texture id.
 	SDFTexture(Vec2, Vec2, u32),
 	/// A single character text defined by its position, font id, font size, and character.
@@ -309,6 +308,8 @@ pub enum BasicShapeData {
 /// - `!Shape` to get the complement of a shape.
 /// 
 /// Note: be careful when using `-`, since they have higher precedence than other bitwise operator in rust.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Shape(pub Vec<ShapeOrOp>);
 
 impl Shape {
@@ -535,6 +536,8 @@ impl Not for Shape {
 }
 
 /// A shape or operator used in the complex shape.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone)]
 pub enum ShapeOrOp {
 	/// A basic shape.
 	Shape(BasicShape),
@@ -570,7 +573,7 @@ impl BasicShapeData {
 				*p1 += offset;
 				*p2 += offset;
 			},
-			Self::QuadHalfPlane(p1, p2, p3) => {
+			Self::QuadBezierPlane(p1, p2, p3) => {
 				*p1 += offset;
 				*p2 += offset;
 				*p3 += offset;
@@ -598,7 +601,7 @@ impl BasicShapeData {
 			},
 			Self::Rectangle(lt, rb, _) => Rect::from_ltrb(*lt, *rb),
 			Self::HalfPlane(_, _) => Rect::WINDOW,
-			Self::QuadHalfPlane(p1, p2, p3) => {
+			Self::QuadBezierPlane(p1, p2, p3) => {
 				let min_x = p1.x.min(p2.x).min(p3.x);
 				let min_y = p1.y.min(p2.y).min(p3.y);
 				let max_x = p1.x.max(p2.x).max(p3.x);

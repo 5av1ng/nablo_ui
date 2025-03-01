@@ -2,6 +2,8 @@
 
 use std::sync::{Arc, Mutex};
 
+use lyon_geom::{point, CubicBezierSegment};
+
 use crate::{math::{color::Vec4, prelude::Transform2D, rect::Rect, vec2::Vec2}, render::{commands::{CommandGpu, OperationGpu}, font::EM, font_render::FontRender}};
 
 use super::{commands::{BlendMode, DrawCommandGpu}, font::{FontId, FontPool}, shape::{BasicShape, BasicShapeData, FillMode, Operator, Shape, ShapeOrOp}};
@@ -175,6 +177,20 @@ impl Painter {
 		});
 	}
 
+	/// Draw a [`ShapeToDraw`].
+	pub fn draw_shape_detailed(&mut self, shape: ShapeToDraw) {
+		let mut fill_mode = shape.fill_mode;
+		fill_mode.move_by(self.releative_to);
+
+		let shape = ShapeToDraw {
+			shape: shape.shape.move_by(self.releative_to).transform(self.transform),
+			fill_mode,
+			clip_rect: shape.clip_rect & self.clip_rect, 
+			..shape
+		};
+		self.shapes.push(shape);
+	}
+
 	/// Draw a rectangle.
 	pub fn draw_rect(&mut self, rect: impl Into<Rect>, rounding: impl Into<Vec4>) {
 		let rect = rect.into();
@@ -239,12 +255,12 @@ impl Painter {
 
 	/// Draw a quad-half-plane.
 	pub fn draw_quad_half_plane(&mut self, a: impl Into<Vec2>, b: impl Into<Vec2>, c: impl Into<Vec2>) {
-		self.draw_shape(BasicShapeData::QuadHalfPlane(a.into(), b.into(), c.into()));
+		self.draw_shape(BasicShapeData::QuadBezierPlane(a.into(), b.into(), c.into()));
 	}
 
 	/// Draw a quadratic bezier curve.
 	pub fn draw_quad_bezier(&mut self, a: impl Into<Vec2>, b: impl Into<Vec2>, c: impl Into<Vec2>, width: f32) {
-		let shape = BasicShapeData::QuadHalfPlane(a.into(), b.into(), c.into());
+		let shape = BasicShapeData::QuadBezierPlane(a.into(), b.into(), c.into());
 		let shape = BasicShape {
 			stroke: Some(width),
 			..BasicShape::from(shape)
@@ -258,6 +274,78 @@ impl Painter {
 	pub fn draw_sdf_texture(&mut self, rect: impl Into<Rect>, texture_id: u32) {
 		let rect = rect.into().move_by(self.releative_to);
 		self.draw_shape(BasicShapeData::SDFTexture(rect.lt(), rect.rb(), texture_id));
+	}
+
+	/// Draw a cubic bezier curve.
+	/// 
+	/// Note: We're using quadratic bezier curve to approximate the cubic bezier curve.
+	/// Therefore, we do not support things like cubic bezier curve plane.
+	pub fn draw_cubic_bezier(&mut self, 
+		from: impl Into<Vec2>,
+		ctrl1: impl Into<Vec2>,
+		ctrl2: impl Into<Vec2>,
+		to: impl Into<Vec2>,
+		stroke_width: f32,
+	) {
+		let from = from.into();
+		let ctrl1 = ctrl1.into();
+		let ctrl2 = ctrl2.into();
+		let to = to.into();
+
+		let cb = CubicBezierSegment {
+			from: point(from.x, from.y),
+			ctrl1: point(ctrl1.x, ctrl1.y),
+			ctrl2: point(ctrl2.x, ctrl2.y),
+			to: point(to.x, to.y),
+		};
+
+		let num_qb = cb.num_quadratics(0.01);
+		let step = 1.0 / num_qb as f32;
+
+		let mut t = 0.0;
+		let mut quads = vec!();
+
+		for _ in 0..(num_qb - 1) {
+			let t1 = t + step;
+			let quad = cb.split_range(t..t1).to_quadratic();
+			quads.push(
+				BasicShape {
+					stroke: Some(stroke_width),
+					transform:Transform2D::IDENTITY,
+					data: BasicShapeData::QuadBezierPlane(
+						Vec2::new(quad.from.x, quad.from.y), 
+						Vec2::new(quad.ctrl.x, quad.ctrl.y),
+						Vec2::new(quad.to.x, quad.to.y),
+					),
+				}
+			);
+			t = t1;
+		}
+
+		let quad = cb.split_range(t..1.0).to_quadratic();
+		quads.push(
+			BasicShape {
+				stroke: Some(stroke_width),
+				transform:Transform2D::IDENTITY,
+				data: BasicShapeData::QuadBezierPlane(
+					Vec2::new(quad.from.x, quad.from.y), 
+					Vec2::new(quad.ctrl.x, quad.ctrl.y),
+					Vec2::new(quad.to.x, quad.to.y),
+				),
+			}
+		);
+
+		if quads.is_empty() {
+			return;
+		} 
+
+		let mut start = Shape::from(quads.pop().unwrap());
+
+		for quad in quads {
+			start |= quad;
+		}
+
+		self.draw_shape(start);
 	}
 
 	/// Draw a text.
@@ -376,29 +464,36 @@ impl Painter {
 	}
 	
 	/// Set the clip rect.
-	pub(crate) fn set_clip_rect(&mut self, rect: Rect) {
+	pub fn set_clip_rect(&mut self, rect: Rect) {
 		self.clip_rect = rect;
 	}
 
 	pub(crate) fn parse(mut self, font_render: &FontRender, dirty_rect: Rect) -> (Vec<DrawCommandGpu>, u32) {
+		use rayon::prelude::*;
+
 		self.shapes.reverse();
 
-		let mut out = vec!();
-		let mut expect_stack_size = 0;
-		let mut current_transform = Transform2D::IDENTITY;
-		let mut current_blend_mode = BlendMode::default();
+		// let mut out = vec!();
+		// let mut expect_stack_size = 0;
+		// let mut current_transform = Transform2D::IDENTITY;
+		// let mut current_blend_mode = BlendMode::default();
 
-		for shape in self.shapes {
+		let shapes = std::mem::take(&mut self.shapes);
+
+		let out = shapes.into_par_iter().filter_map(|shape| {
 			if !shape.is_visible_in_rect(dirty_rect) {
-				continue;
+				return None;
 			}
+			Some(shape.parse(font_render))
+		}).collect::<Vec<_>>();
 
-			let (commands, stack_size) = shape.parse(font_render, &mut current_transform, &mut current_blend_mode);
-			expect_stack_size = expect_stack_size.max(stack_size);
-			out.extend(commands);
+		
+		let mut expect_stack_size = 0;
+		for (_, size) in out.iter() {
+			expect_stack_size = (*size).max(expect_stack_size);
 		}
 
-		(out, expect_stack_size)
+		(out.into_iter().flat_map(|(inner, _)| inner).collect(), expect_stack_size)
 	}
 }
 
@@ -407,7 +502,7 @@ enum ShapeOrStack {
 	Stack(u32)
 }
 
-fn get_stack(stack_index: u32, op: OperationGpu, parameter: f32) -> DrawCommandGpu {
+fn get_stack(stack_index: u32, op: OperationGpu, parameter: f32, /* clip_rect: Rect */) -> DrawCommandGpu {
 	DrawCommandGpu {
 		command: CommandGpu::Load as u32,
 		slots: [
@@ -418,30 +513,36 @@ fn get_stack(stack_index: u32, op: OperationGpu, parameter: f32) -> DrawCommandG
 		],
 		stroke_width: -1.0,
 		operation: op as u32,
-		smooth_function: 0,
-		smooth_parameter: 0.0,
+		// smooth_function: 0,
+		// smooth_parameter: 0.0,
 		lhs: 0,
 		parameter,
-		__padding: Default::default(),
+		// clip_rect_lt_x: clip_rect.lt().x,
+		// clip_rect_lt_y: clip_rect.lt().y,
+		// clip_rect_rb_x: clip_rect.rb().x,
+		// clip_rect_rb_y: clip_rect.rb().y,
+		..Default::default()
 	}
 }
 
 fn get_transform(transform: Transform2D) -> DrawCommandGpu {
 	DrawCommandGpu {
-		command: CommandGpu::SetTransform2D as u32,
+		command: CommandGpu::SetMat3x3 as u32,
 		slots: [
 			[transform[0][0], transform[1][0], transform[2][0], transform[0][1]],
-			[transform[1][1], transform[2][1], 0.0, 0.0],
-			[0.0, 0.0, 0.0, 0.0],
+			[transform[1][1], transform[2][1], transform[0][2], transform[1][2]],
+			[transform[2][2], 0.0, 0.0, 0.0],
 			[0.0, 0.0, 0.0, 0.0],
 		],
 		stroke_width: -1.0,
 		operation: OperationGpu::None as u32,
-		smooth_function: 0,
-		smooth_parameter: 0.0,
 		lhs: 0,
 		parameter: 0.0,
-		__padding: Default::default(),
+		// clip_rect_lt_x: 0.0,
+		// clip_rect_lt_y: 0.0,
+		// clip_rect_rb_x: 0.0,
+		// clip_rect_rb_y: 0.0,
+		..Default::default()
 	}
 }
 
@@ -451,7 +552,8 @@ fn hanle_binary_op(
 	rhs: ShapeOrStack,
 	current_transform: &mut Transform2D,
 	font_render: &FontRender,
-	stack_index: &mut u32
+	stack_index: &mut u32,
+	// clip_rect: Rect
 ) -> Option<(Vec<DrawCommandGpu>, ShapeOrStack)> {
 	let (op, parameter) = match op {
 		Operator::And => (OperationGpu::And, 0.0),
@@ -481,6 +583,11 @@ fn hanle_binary_op(
 				slots,
 				operation: OperationGpu::Replace as u32,
 				lhs: *stack_index,
+				// clip_rect_lt_x: clip_rect.lt().x,
+				// clip_rect_lt_y: clip_rect.lt().y,
+				// clip_rect_rb_x: clip_rect.rb().x,
+				// clip_rect_rb_y: clip_rect.rb().y,
+				parameter: 0.0,
 				..Default::default()
 			});
 			if current_transform != &shape2.transform {
@@ -496,6 +603,10 @@ fn hanle_binary_op(
 				operation: op as u32,
 				lhs: *stack_index,
 				parameter,
+				// clip_rect_lt_x: clip_rect.lt().x,
+				// clip_rect_lt_y: clip_rect.lt().y,
+				// clip_rect_rb_x: clip_rect.rb().x,
+				// clip_rect_rb_y: clip_rect.rb().y,
 				..Default::default()
 			});
 			*stack_index
@@ -510,6 +621,11 @@ fn hanle_binary_op(
 				stroke_width,
 				operation: OperationGpu::Replace as u32,
 				lhs: *stack_index,
+				// clip_rect_lt_x: clip_rect.lt().x,
+				// clip_rect_lt_y: clip_rect.lt().y,
+				// clip_rect_rb_x: clip_rect.rb().x,
+				// clip_rect_rb_y: clip_rect.rb().y,
+				parameter: 0.0,
 				..Default::default()
 			});
 			out.push(DrawCommandGpu {
@@ -524,6 +640,10 @@ fn hanle_binary_op(
 				operation: op as u32,
 				lhs: index,
 				parameter,
+				// clip_rect_lt_x: clip_rect.lt().x,
+				// clip_rect_lt_y: clip_rect.lt().y,
+				// clip_rect_rb_x: clip_rect.rb().x,
+				// clip_rect_rb_y: clip_rect.rb().y,
 				..Default::default()
 			});
 			index
@@ -532,7 +652,7 @@ fn hanle_binary_op(
 			*stack_index -= 1;
 			out.push(DrawCommandGpu {
 				lhs: l_index,
-				..get_stack(r_index, op, parameter)
+				..get_stack(r_index, op, parameter, /* clip_rect */)
 			});
 			l_index
 		}
@@ -542,7 +662,12 @@ fn hanle_binary_op(
 }
 
 impl ShapeToDraw {
-	pub(crate) fn parse(self, font_render: &FontRender, current_transform: &mut Transform2D, current_blend_mode: &mut BlendMode) -> (Vec<DrawCommandGpu>, u32) {
+	pub(crate) fn parse(self, font_render: &FontRender) -> (Vec<DrawCommandGpu>, u32) {
+		// let clip_rect = self.clip_rect;
+		
+		let mut current_transform = Transform2D::IDENTITY; 
+		// let current_blend_mode = BlendMode::default();
+
 		let mut stack = vec!();
 		let mut max_stack_size = 0;
 		let mut used_stack_amount  = 0;
@@ -564,8 +689,8 @@ impl ShapeToDraw {
 							ShapeOrStack::Shape(shape) => {
 								used_stack_amount += 1;
 								max_stack_size = max_stack_size.max(used_stack_amount);
-								if *current_transform != shape.transform {
-									*current_transform = shape.transform;
+								if current_transform != shape.transform {
+									current_transform = shape.transform;
 									out.push(get_transform(shape.transform));
 								}
 								let (command, slots) = shape.data.compile(font_render).unwrap();
@@ -576,11 +701,16 @@ impl ShapeToDraw {
 									stroke_width,
 									operation: OperationGpu::Neg as u32,
 									lhs: used_stack_amount,
+									// clip_rect_lt_x: clip_rect.lt().x,
+									// clip_rect_lt_y: clip_rect.lt().y,
+									// clip_rect_rb_x: clip_rect.rb().x,
+									// clip_rect_rb_y: clip_rect.rb().y,
+									parameter: 0.0,
 									..Default::default()
 								});
 							},
 							ShapeOrStack::Stack(stack_index) => {
-								out.push(get_stack(stack_index, OperationGpu::Neg, 0.0));
+								out.push(get_stack(stack_index, OperationGpu::Neg, 0.0, /* clip_rect */));
 							}
 						}
 						continue;
@@ -589,7 +719,16 @@ impl ShapeToDraw {
 					let rhs = stack.pop().unwrap();
 					let lhs = stack.pop().unwrap();
 
-					if let Some((commands, stack_index)) = hanle_binary_op(op, lhs, rhs, current_transform, font_render, &mut used_stack_amount) {
+					if let Some((commands, stack_index)) = 
+					hanle_binary_op(
+						op, 
+						lhs, 
+						rhs, 
+						&mut current_transform, 
+						font_render, 
+						&mut used_stack_amount, 
+						// clip_rect
+					) {
 						max_stack_size = max_stack_size.max(used_stack_amount);
 						stack.push(stack_index);
 						out.extend(commands);
@@ -603,8 +742,8 @@ impl ShapeToDraw {
 		if let Some(shape) = stack.pop() {
 			match shape {
 				ShapeOrStack::Shape(shape) => {
-					if current_transform != &shape.transform {
-						*current_transform = shape.transform;
+					if current_transform != shape.transform {
+						current_transform = shape.transform;
 						out.push(get_transform(shape.transform));
 					}
 					let (command, slots) = if let Some(inner) = shape.data.compile(font_render) {
@@ -619,6 +758,11 @@ impl ShapeToDraw {
 						stroke_width,
 						operation: OperationGpu::Replace as u32,
 						lhs: 1,
+						// clip_rect_lt_x: clip_rect.lt().x,
+						// clip_rect_lt_y: clip_rect.lt().y,
+						// clip_rect_rb_x: clip_rect.rb().x,
+						// clip_rect_rb_y: clip_rect.rb().y,
+						parameter: 0.0,
 						..Default::default()
 					});
 				},
@@ -626,6 +770,11 @@ impl ShapeToDraw {
 					assert!(stack_index == 1)
 				},
 			}
+		}
+
+		if current_transform != Transform2D::IDENTITY {
+			// current_transform = Transform2D::IDENTITY;
+			out.push(get_transform(Transform2D::IDENTITY));
 		}
 
 		out.push(DrawCommandGpu {
@@ -643,6 +792,7 @@ impl ShapeToDraw {
 			lhs: 1,
 			parameter: 0.0,
 			__padding: Default::default(),
+			// ..Default::default()
 		});
 
 		out.push(DrawCommandGpu {
@@ -655,32 +805,42 @@ impl ShapeToDraw {
 			],
 			stroke_width: -1.0,
 			operation: OperationGpu::Or as u32,
-			smooth_function: 0,
-			smooth_parameter: 0.0,
+			// smooth_function: 0,
+			// smooth_parameter: 0.0,
 			lhs: 0,
 			parameter: 0.0,
-			__padding: Default::default(),
+			// clip_rect_lt_x: clip_rect.lt().x,
+			// clip_rect_lt_y: clip_rect.lt().y,
+			// clip_rect_rb_x: clip_rect.rb().x,
+			// clip_rect_rb_y: clip_rect.rb().y,
+			// __padding: Default::default(),
+			..Default::default()
 		});
 
-		if *current_blend_mode != self.blend_mode {
-			*current_blend_mode = self.blend_mode;
-			out.push(DrawCommandGpu {
-				command: CommandGpu::SetBlendMode as u32,
-				slots: [
-					[self.blend_mode as u32 as f32, 0.0, 0.0, 0.0],
-					[0.0, 0.0, 0.0, 0.0],
-					[0.0, 0.0, 0.0, 0.0],
-					[0.0, 0.0, 0.0, 0.0],
-				],
-				stroke_width: -1.0,
-				operation: OperationGpu::None as u32,
-				smooth_function: 0,
-				smooth_parameter: 0.0,
-				lhs: 0,
-				parameter: 0.0,
-				__padding: Default::default(),
-			});
-		}
+	
+		// current_blend_mode = self.blend_mode;
+		out.push(DrawCommandGpu {
+			command: CommandGpu::SetBlendMode as u32,
+			slots: [
+				[self.blend_mode as u32 as f32, 0.0, 0.0, 0.0],
+				[0.0, 0.0, 0.0, 0.0],
+				[0.0, 0.0, 0.0, 0.0],
+				[0.0, 0.0, 0.0, 0.0],
+			],
+			stroke_width: -1.0,
+			operation: OperationGpu::None as u32,
+			// smooth_function: 0,
+			// smooth_parameter: 0.0,
+			lhs: 0,
+			parameter: 0.0,
+			// clip_rect_lt_x: clip_rect.lt().x,
+			// clip_rect_lt_y: clip_rect.lt().y,
+			// clip_rect_rb_x: clip_rect.rb().x,
+			// clip_rect_rb_y: clip_rect.rb().y,
+			// __padding: Default::default(),
+			..Default::default()
+		});
+		
 
 		let (fill, slots) = self.fill_mode.compile();
 		
@@ -691,11 +851,16 @@ impl ShapeToDraw {
 			slots,
 			stroke_width: -1.0,
 			operation: OperationGpu::None as u32,
-			smooth_function: 0,
-			smooth_parameter: 0.0,
+			// smooth_function: 0,
+			// smooth_parameter: 0.0,
 			lhs: 0,
 			parameter: 0.0,
-			__padding: Default::default(),
+			// clip_rect_lt_x: clip_rect.lt().x,
+			// clip_rect_lt_y: clip_rect.lt().y,
+			// clip_rect_rb_x: clip_rect.rb().x,
+			// clip_rect_rb_y: clip_rect.rb().y,
+			// __padding: Default::default(),
+			..Default::default()
 		});
 		
 		(out, max_stack_size + 1)
@@ -781,8 +946,8 @@ impl BasicShapeData {
 					[0.0, 0.0, 0.0, 0.0],
 				])
 			},
-			Self::QuadHalfPlane(a, b, c) => {
-				(CommandGpu::DrawQuadHalfPlane, [
+			Self::QuadBezierPlane(a, b, c) => {
+				(CommandGpu::DrawQuadPlane, [
 					[a.x, a.y, b.x, b.y],
 					[c.x, c.y, 0.0, 0.0],
 					[0.0, 0.0, 0.0, 0.0],

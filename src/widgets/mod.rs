@@ -15,6 +15,7 @@ pub mod radio;
 pub mod slider;
 pub mod styles;
 pub mod floating_container;
+// pub mod color_picker;
 
 pub mod reactive;
 
@@ -25,7 +26,7 @@ use std::{any::Any, collections::HashMap};
 use indexmap::IndexMap;
 use time::Duration;
 
-use crate::{layout::{Layout, LayoutId}, math::{rect::Rect, vec2::Vec2}, render::painter::Painter, window::input_state::InputState};
+use crate::{layout::{Layout, LayoutId}, math::{rect::Rect, vec2::Vec2}, render::painter::Painter, window::input_state::InputState, App};
 
 pub const DOUBLE_CLICK_THRESHOLD: Duration = Duration::milliseconds(250);
 
@@ -38,6 +39,7 @@ pub const DOUBLE_CLICK_THRESHOLD: Duration = Duration::milliseconds(250);
 /// Therefore you can safely store any data in the widget.
 pub trait Widget: Any {
 	type Signal: Signal;
+	type Application: App<Signal = Self::Signal>;
 
 	/// Handle window events. 
 	/// 
@@ -47,7 +49,14 @@ pub trait Widget: Any {
 	/// The `pos` is the position of the widget's left top absolute position.
 	/// 
 	/// The area may be smaller than the widget size. Since we may have scrolled the viewport,
-	fn handle_event(&mut self, input_state: &mut InputState<Self::Signal>, id: LayoutId, area: Rect, pos: Vec2) -> bool;
+	fn handle_event(
+		&mut self, 
+		app: &mut Self::Application,
+		input_state: &mut InputState<Self::Signal>, 
+		id: LayoutId, 
+		area: Rect, 
+		pos: Vec2
+	) -> bool;
 
 	/// Draw the widget.
 	/// 
@@ -58,7 +67,12 @@ pub trait Widget: Any {
 	fn draw(&mut self, painter: &mut Painter, size: Vec2);
 
 	/// Get the size of the widget.
-	fn size(&self, id: LayoutId, painter: &Painter, layout: &Layout<Self::Signal>) -> Vec2;
+	fn size(&self, id: LayoutId, painter: &Painter, layout: &Layout<Self::Signal, Self::Application>) -> Vec2;
+
+	/// Set whether the widget should handle event next frame.
+	/// 
+	/// If false, the widget will only handle event when any touch is inside the widget.
+	fn continuous_event_handling(&self) -> bool;
 
 	/// Handle child layout, if any.
 	/// 
@@ -98,18 +112,18 @@ impl Signal for () {}
 
 impl<T: Signal> Signal for Option<T> {}
 
-impl<S: Signal> dyn Widget<Signal = S> {
+impl<S: Signal, A: App<Signal = S>> dyn Widget<Signal = S, Application = A> {
 	/// Get concrete reference type of the widget.
 	pub fn downcast_ref<T: Widget<Signal = S> + Any>(&self) -> Option<&T> {
 		if self.type_id() == std::any::TypeId::of::<T>() {
-			Some(unsafe { &*(self as *const dyn Widget<Signal = S> as *const T) })
+			Some(unsafe { &*(self as *const dyn Widget<Signal = S, Application = A> as *const T) })
 		} else {
 			None
 		}
 	}
 
 	/// Check if the widget is of the specified type.
-	pub fn is<T: Widget<Signal = S> + Any>(&self) -> bool {
+	pub fn is<T: Widget<Signal = S, Application = A> + Any>(&self) -> bool {
 		self.type_id() == std::any::TypeId::of::<T>()
 	}
 }
@@ -130,26 +144,26 @@ pub struct SignalWrapper<S: Signal> {
 /// 
 /// To get full part of the widget, use [`crate::widgets::reactive::Reactive`] instead.
 #[allow(clippy::type_complexity)]
-pub struct SignalGenerator<S: Signal, T> {
+pub struct SignalGenerator<S: Signal, T, A: App<Signal = S>> {
 	/// The signal to be generated when the widget is clicked.
-	pub on_click: Option<Box<dyn Fn(&mut T) -> S>>,
+	pub on_click: Option<Box<dyn Fn(&mut A, &mut T) -> S>>,
 	/// The signal to be generated when the widget is pressed.
-	pub on_pressed: Option<Box<dyn Fn(&mut T) -> S>>,
+	pub on_pressed: Option<Box<dyn Fn(&mut A, &mut T) -> S>>,
 	/// The signal to be generated when the widget is released.
-	pub on_released: Option<Box<dyn Fn(&mut T) -> S>>,
+	pub on_released: Option<Box<dyn Fn(&mut A, &mut T) -> S>>,
 	/// The signal to be generated when the widget is hovered.
-	pub on_hover: Option<Box<dyn Fn(&mut T) -> S>>,
+	pub on_hover: Option<Box<dyn Fn(&mut A, &mut T) -> S>>,
 	/// The signal to be generated when the widget is unhovered.
-	pub on_unhover: Option<Box<dyn Fn(&mut T) -> S>>,
+	pub on_unhover: Option<Box<dyn Fn(&mut A, &mut T) -> S>>,
 	/// The signal to be generated when the widget is dragged.
 	/// 
 	/// Also contains the scroll event,
 	/// Will construct a signal with the scroll delta.
-	pub on_drag: Option<Box<dyn Fn(&mut T, Vec2) -> S>>,
+	pub on_drag: Option<Box<dyn Fn(&mut A, &mut T, Vec2) -> S>>,
 	/// The signal to be generated when the widget is double clicked.
 	/// 
 	/// Note: you need to set [`Self::on_click`] to use this correctly.
-	pub on_double_click: Option<Box<dyn Fn(&mut T) -> S>>,
+	pub on_double_click: Option<Box<dyn Fn(&mut A, &mut T) -> S>>,
 	last_click_time: Option<Duration>,
 	dragging_by: Option<u64>,
 	is_hovering: bool,
@@ -163,7 +177,7 @@ pub struct SignalGeneratorResult {
 	pub drag_delta: Option<Vec2>,
 }
 
-impl<S: Signal, T> Default for SignalGenerator<S, T> {
+impl<S: Signal, T, A: App<Signal = S>> Default for SignalGenerator<S, T, A> {
 	fn default() -> Self {
 		Self {
 			on_click: None,
@@ -180,9 +194,9 @@ impl<S: Signal, T> Default for SignalGenerator<S, T> {
 	}
 }
 
-impl<S: Signal, T> SignalGenerator<S, T> {
+impl<S: Signal, T, A: App<Signal = S>> SignalGenerator<S, T, A> {
 	/// Set the signal to be generated when the widget is clicked.
-	pub fn on_click(self, signal: impl Fn(&mut T) -> S + 'static) -> Self {
+	pub fn on_click(self, signal: impl Fn(&mut A, &mut T) -> S + 'static) -> Self {
 		Self {
 			on_click: Some(Box::new(signal)),
 			..self
@@ -198,7 +212,7 @@ impl<S: Signal, T> SignalGenerator<S, T> {
 	}
 
 	/// Set the signal to be generated when the widget is pressed.
-	pub fn on_pressed(self, signal: impl Fn(&mut T) -> S + 'static) -> Self {
+	pub fn on_pressed(self, signal: impl Fn(&mut A, &mut T) -> S + 'static) -> Self {
 		Self {
 			on_pressed: Some(Box::new(signal)),
 			..self
@@ -214,7 +228,7 @@ impl<S: Signal, T> SignalGenerator<S, T> {
 	}
 
 	/// Set the signal to be generated when the widget is released.
-	pub fn on_released(self, signal: impl Fn(&mut T) -> S + 'static) -> Self {
+	pub fn on_released(self, signal: impl Fn(&mut A, &mut T) -> S + 'static) -> Self {
 		Self {
 			on_released: Some(Box::new(signal)),
 			..self
@@ -230,7 +244,7 @@ impl<S: Signal, T> SignalGenerator<S, T> {
 	}
 
 	/// Set the signal to be generated when the widget is hovered.
-	pub fn on_hover(self, signal: impl Fn(&mut T) -> S + 'static) -> Self {
+	pub fn on_hover(self, signal: impl Fn(&mut A, &mut T) -> S + 'static) -> Self {
 		Self {
 			on_hover: Some(Box::new(signal)),
 			..self
@@ -246,7 +260,7 @@ impl<S: Signal, T> SignalGenerator<S, T> {
 	}
 
 	/// Set the signal to be generated when the widget is unhovered.
-	pub fn on_unhover(self, signal: impl Fn(&mut T) -> S + 'static) -> Self {
+	pub fn on_unhover(self, signal: impl Fn(&mut A, &mut T) -> S + 'static) -> Self {
 		Self {
 			on_unhover: Some(Box::new(signal)),
 			..self
@@ -262,7 +276,7 @@ impl<S: Signal, T> SignalGenerator<S, T> {
 	}
 
 	/// Set the signal to be generated when the widget is dragged.
-	pub fn on_drag(self, signal: impl Fn(&mut T, Vec2) -> S + 'static) -> Self {
+	pub fn on_drag(self, signal: impl Fn(&mut A, &mut T, Vec2) -> S + 'static) -> Self {
 		Self {
 			on_drag: Some(Box::new(signal)),
 			..self
@@ -278,7 +292,7 @@ impl<S: Signal, T> SignalGenerator<S, T> {
 	}
 
 	/// Set the signal to be generated when the widget is double clicked.
-	pub fn on_double_click(self, signal: impl Fn(&mut T) -> S + 'static) -> Self {
+	pub fn on_double_click(self, signal: impl Fn(&mut A, &mut T) -> S + 'static) -> Self {
 		Self {
 			on_double_click: Some(Box::new(signal)),
 			..self
@@ -294,8 +308,10 @@ impl<S: Signal, T> SignalGenerator<S, T> {
 	}
 
 	/// Generate signals based on the input state.
+	#[allow(clippy::too_many_arguments)]
 	pub fn generate_signals(
 		&mut self, 
+		app: &mut A, 
 		style: &mut T,
 		input_state: &mut InputState<S>, 
 		from: LayoutId, 
@@ -322,7 +338,7 @@ impl<S: Signal, T> SignalGenerator<S, T> {
 		if !contains_mouse && self.is_hovering {
 			self.is_hovering = false;
 			if let Some(signal) = &self.on_unhover {
-				input_state.send_signal_from(from, signal(style));
+				input_state.send_signal_from(from, signal(app, style));
 			}
 		}
 
@@ -339,12 +355,12 @@ impl<S: Signal, T> SignalGenerator<S, T> {
 					false
 				} {
 					if let Some(signal) = &self.on_double_click {
-						input_state.send_signal_from(from, signal(style));
+						input_state.send_signal_from(from, signal(app, style));
 					}else {
-						input_state.send_signal_from(from, signal(style));	
+						input_state.send_signal_from(from, signal(app, style));	
 					}
 				}else {
-					input_state.send_signal_from(from, signal(style));
+					input_state.send_signal_from(from, signal(app, style));
 				}
 				self.last_click_time = Some(current);
 			}
@@ -359,26 +375,26 @@ impl<S: Signal, T> SignalGenerator<S, T> {
 
 		if let Some(signal) = &self.on_pressed {
 			if input_state.any_touch_pressed_on(area) {
-				input_state.send_signal_from(from, signal(style));
+				input_state.send_signal_from(from, signal(app, style));
 			}
 		}
 
 		if let Some(signal) = &self.on_released {
 			if input_state.any_touch_released_on(area) {
-				input_state.send_signal_from(from, signal(style));
+				input_state.send_signal_from(from, signal(app, style));
 			}
 		}
 
 		if let Some(signal) = &self.on_hover {
 			if input_state.is_any_touch_pressing() && contains_mouse {
-				input_state.send_signal_from(from, signal(style));
+				input_state.send_signal_from(from, signal(app, style));
 			}
 		}
 
 		if let Some(signal) = &self.on_drag {
 			if let Some(id) = &self.dragging_by {
 				let drag_delta = input_state.drag_delta(*id);
-				input_state.send_signal_from(from, signal(style, drag_delta));
+				input_state.send_signal_from(from, signal(app, style, drag_delta));
 				out_drag_delta = Some(drag_delta + input_state.wheel_delta_consume());
 			}else if input_state.wheel_delta() != Vec2::ZERO {
 				out_drag_delta = Some(input_state.wheel_delta_consume());

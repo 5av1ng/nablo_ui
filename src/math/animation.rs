@@ -11,7 +11,8 @@ use super::{color::Color, vec2::Vec2};
 pub static DEFAULT_ANIMATION_DURATION: Duration = Duration::milliseconds(150);
 
 /// Represents a one dimensional animation.
-#[derive(Default)]
+#[derive(Default, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct Animation {
 	/// The start value of the animation.
 	pub start_value: f32,
@@ -20,7 +21,8 @@ pub struct Animation {
 }
 
 /// Represents a node of an animation.
-#[derive(Default)]
+#[derive(Default, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct AnimationNode {
 	/// The time relative to the last node.
 	pub time: Duration,
@@ -31,7 +33,8 @@ pub struct AnimationNode {
 }
 
 /// Represents a interpolation function of an animation node.
-#[derive(Default)]
+#[derive(Default, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub enum Linker {
 	/// Become the value of the next node instantly when reach the end of the current node.
 	#[default] Mutation,
@@ -41,24 +44,24 @@ pub enum Linker {
 	/// 
 	/// Value should be normalized to the range [0, 1].
 	Bezier(Vec2, Vec2),
-	/// Custom interpolation function.
-	Custom(Box<dyn Interpolation>),
+	// /// Custom interpolation function.
+	// Custom(Box<dyn Interpolation>),
 }
 
-/// Represents a custom interpolation function.
-pub trait Interpolation {
-	/// Calculates the interpolated value between the current and next node.
-	/// 
-	/// All the time values are in absolute time rather than relative to the last node.
-	fn interpolate(
-		&self, 
-		last_node_time: Duration, 
-		sustain_time: Duration, 
-		current: Duration,
-		previous_value: f32,
-		next_value: f32, 
-	) -> f32;
-}
+// /// Represents a custom interpolation function.
+// pub trait Interpolation {
+// 	/// Calculates the interpolated value between the current and next node.
+// 	/// 
+// 	/// All the time values are in absolute time rather than relative to the last node.
+// 	fn interpolate(
+// 		&self, 
+// 		last_node_time: Duration, 
+// 		sustain_time: Duration, 
+// 		current: Duration,
+// 		previous_value: f32,
+// 		next_value: f32, 
+// 	) -> f32;
+// }
 
 impl Animation {
 	/// Creates a new animation with the given start value and nodes.
@@ -182,15 +185,15 @@ impl Animation {
 					let y = bezier.y(t);
 					(1.0 - y) * previous_value + y * node.value
 				},
-				Linker::Custom(interpolation) => {
-					interpolation.interpolate(
-						current_time, 
-						node.time, 
-						time, 
-						previous_value, 
-						node.value,
-					)
-				}
+				// Linker::Custom(interpolation) => {
+				// 	interpolation.interpolate(
+				// 		current_time, 
+				// 		node.time, 
+				// 		time, 
+				// 		previous_value, 
+				// 		node.value,
+				// 	)
+				// }
 			};
 		}
 

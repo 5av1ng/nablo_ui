@@ -5,50 +5,29 @@
 const FONT: &[u8] = include_bytes!("path/to/your/font.ttf");
 
 use nablo_ui::prelude::*;
-use std::rc::Rc;
-use std::cell::RefCell;
 
 #[derive(Default)]
 struct Counter {
-    data: Rc<RefCell<isize>>,
+    data: isize,
 }
 
-enum Msg {
-    Increment,
-    Decrement,
-}
+impl App for Counter {
+	type Signal = ();
 
-impl Signal for Msg {}
-
-impl App<Msg> for Counter {
-    fn on_start(&mut self, ctx: &mut Context<Msg>) {
-        let data = self.data.clone();
+    fn on_start(&mut self, ctx: &mut Context<(), Self>) {
         new_layout!(ctx.layout, Card::new(LayoutStrategy::default())
             .rounding(Vec4::same(16.0))
             .padding(Vec2::same(16.0)) => 
         {
-            Reactive::new(Label::new("Counter: 0"), move |inner| {
-                if let Ok(data) = data.try_borrow() {
-                    inner.text(format!("Counter: {}", data))
-                }else {
-                    inner
-                }
+            Reactive::new(Label::new("Counter: 0"), |app: &mut Self, inner| {
+                inner.text(format!("Counter: {}", app.data))
             }),
-            Button::new("increase").on_click(|_| Msg::Increment),
-            Button::new("decrease").on_click(|_| Msg::Decrement),
+            Button::new("increase").on_click(|app: &mut Self, _| app.data += 1),
+            Button::new("decrease").on_click(|app: &mut Self, _| app.data -= 1),
         });
     }
 
-    fn on_signal(&mut self, _: &mut Context<Msg>, signal: SignalWrapper<Msg>) {
-        match signal.signal {
-            Msg::Increment => {
-                *self.data.borrow_mut() += 1;
-            },
-            Msg::Decrement => {
-                *self.data.borrow_mut() -= 1;
-            }
-        }
-    }
+	fn on_signal(&mut self, _: &mut Context<Self::Signal, Self>, _: SignalWrapper<Self::Signal>) {}
 }
 
 fn main() {

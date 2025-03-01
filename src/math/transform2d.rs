@@ -1,19 +1,10 @@
-//! Transform2D represents a 2D transformation matrix.
+//! Transform2D represents a 2D prjective transformation matrix.
 
 use std::ops::{Add, AddAssign, Div, DivAssign, Index, IndexMut, Mul, MulAssign, Shl, ShlAssign, Shr, ShrAssign, Sub, SubAssign};
 
 use super::vec2::Vec2;
 
 /// A 2D transformation matrix.
-/// 
-/// The formula of a 2D transformation matrix is:
-/// $$
-/// \begin{bmatrix}
-/// m00 & m10 & m20 \\
-/// m01 & m11 & m21 \\
-///  0  &  0  &  1  \\
-/// \end{bmatrix}
-/// $$
 /// 
 /// The matrix multiplication implemented here is not the matrix multiplication in the mathematical sense, 
 /// but simply multiplying each component individually.
@@ -29,26 +20,26 @@ use super::vec2::Vec2;
 /// and the `Default` trait to create an identity matrix.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[derive(serde::Deserialize, serde::Serialize)]
-pub struct Transform2D([[f32; 2]; 3]);
+pub struct Transform2D([[f32; 3]; 3]);
 
 impl Default for Transform2D {
-    fn default() -> Self {
-        Self::IDENTITY
-    }
+	fn default() -> Self {
+		Self::IDENTITY
+	}
 }
 
 impl Index<usize> for Transform2D {
-    type Output = [f32; 2];
+	type Output = [f32; 3];
 
-    fn index(&self, index: usize) -> &[f32; 2] {
-        &self.0[index]
-    }
+	fn index(&self, index: usize) -> &[f32; 3] {
+		&self.0[index]
+	}
 }
 
 impl IndexMut<usize> for Transform2D {
-    fn index_mut(&mut self, index: usize) -> &mut [f32; 2] {
-        &mut self.0[index]
-    }
+	fn index_mut(&mut self, index: usize) -> &mut [f32; 3] {
+		&mut self.0[index]
+	}
 }
 
 impl Transform2D {
@@ -60,26 +51,23 @@ impl Transform2D {
 	
 	/// Creates a new 2D transformation matrix in column-major order.
 	pub const fn column_major(a: f32, b: f32, c: f32, d: f32, e: f32, f: f32) -> Self {
-		Self([[a, d], [b, e], [c, f]])
+		Self([[a, d, 0.0], [b, e, 0.0], [c, f, 1.0]])
 	}
 
 	/// Creates a new 2D transformation matrix in row-major order.
 	pub const fn row_major(a: f32, b: f32, c: f32, d: f32, e: f32, f: f32) -> Self {
-		Self([[a, b], [c, d], [e, f]])
+		Self([[a, b, 0.0], [c, d, 0.0], [e, f, 1.0]])
 	}
 
-	// /// Creates a new 2D transformation matrix with the given components.
-	// /// 
-	// /// The matrix is in the form:
-	// /// $$
-	// /// \begin{bmatrix}
-	// /// a & b & tx \\
-	// /// c & d & ty \\
-	// /// 0 & 0 & 1 
-	// /// \end{bmatrix}
-	// pub const fn new(a: f32, b: f32, c: f32, d: f32, tx: f32, ty: f32) -> Self {
-	// 	Self([[a, c], [b, d], [tx, ty]])
-	// }
+	/// Creates a new 2D projective transformation matrix from a 3x3 matrix in column-major order.
+	pub const fn column_projective(value: [f32; 9]) -> Self {
+		Self([[value[0], value[1], value[2]], [value[3], value[4], value[5]], [value[6], value[7], value[8]]])
+	}
+
+	/// Creates a new 2D projective transformation matrix from a 3x3 matrix in row-major order.
+	pub const fn row_projective(value: [f32; 9]) -> Self {
+		Self([[value[0], value[3], value[6]], [value[1], value[4], value[7]], [value[2], value[5], value[8]]])
+	}
 
 	/// Creates a new 2D transformation matrix that scales by the given factors.
 	pub fn scale(factor: impl Into<Vec2>) -> Self {
@@ -116,17 +104,70 @@ impl Transform2D {
 
 	/// Calculates the inverse of the transformation matrix.
 	pub fn inverse(self) -> Self {
-		let c11 = self[1][1];
-		let c12 = - self[0][1];
-		let c21 = - self[1][0];
-		let c22 = self[0][0];
-		let c31 = self[1][0] * self[2][1] - self[2][0] * self[1][1];
-		let c32 = self[0][0] * self[2][1] - self[2][0] * self[0][1];
-		let det = self[0][0] * self[1][1] - self[0][1] * self[1][0];
-		Self::column_major(
-			c11 / det, c21 / det, c31 / det, 
-			c12 / det, c22 / det, c32 / det
-		)
+		self.cofactor_matrix() / self.det()
+	}
+
+	/// Calculates the determinant of the transformation matrix.
+	pub fn det(&self) -> f32 {
+		self[0][0] * self[1][1] * self[2][2] +
+		self[0][1] * self[1][2] * self[2][0] +
+		self[0][2] * self[1][0] * self[2][1] -
+		self[0][2] * self[1][1] * self[2][0] -
+		self[0][1] * self[1][0] * self[2][2] -
+		self[0][0] * self[1][2] * self[2][1]
+	}
+
+	/// Caculates the minor of the transformation matrix at the given row and column.
+	pub fn minor(&self, row: usize, col: usize) -> f32 {
+        let mut sub = [[0.0; 2]; 2];
+        
+        for (sub_row, r) in (0..3).filter(|&x| x != row).enumerate() {
+            for (sub_col, c) in (0..3).filter(|&x| x != col).enumerate() {
+                sub[sub_row][sub_col] = self.0[c][r];
+            }
+        }
+        
+        sub[0][0] * sub[1][1] - sub[0][1] * sub[1][0]
+	}
+
+	/// Calculates the cofactor matrix of the transformation matrix.
+	pub fn cofactor_matrix(self) -> Self {
+		let mut result = Transform2D([[0.0; 3]; 3]);
+        
+        for row in 0..3 {
+            for col in 0..3 {
+                let minor = self.minor(row, col);
+                let sign = if (row + col) % 2 == 0 { 1.0 } else { -1.0 };
+                result.0[col][row] = sign * minor;
+            }
+        }
+        result
+	}
+
+	fn apply(&self, other: impl Into<Vec2>) -> Vec2 {
+		let other = other.into();
+		let new_x = self.0[0][0] * other.x + self.0[1][0] * other.y + self.0[2][0];
+        let new_y = self.0[0][1] * other.x + self.0[1][1] * other.y + self.0[2][1];
+        let new_w = self.0[0][2] * other.x + self.0[1][2] * other.y + self.0[2][2];
+
+		Vec2::new(new_x, new_y) / new_w
+	}
+
+	fn mul(self, other: Self) -> Self {
+		let mut result = Transform2D([[0.0; 3]; 3]);
+        
+        for result_col in 0..3 {
+            for result_row in 0..3 {
+                let mut sum = 0.0;
+                for k in 0..3 {
+                    let a = self.0[k][result_row];
+                    let b = other.0[result_col][k];
+                    sum += a * b;
+                }
+                result.0[result_col][result_row] = sum;
+            }
+        }
+        result
 	}
 }
 
@@ -136,7 +177,7 @@ impl Add for Transform2D {
 	fn add(self, other: Self) -> Self {
 		let mut result = Self::ZERO;
 		for i in 0..3 {
-			for j in 0..2 {
+			for j in 0..3 {
 				result[i][j] = self[i][j] + other[i][j];
 			}
 		}
@@ -150,7 +191,7 @@ impl Sub for Transform2D {
 	fn sub(self, other: Self) -> Self {
 		let mut result = Self::ZERO;
 		for i in 0..3 {
-			for j in 0..2 {
+			for j in 0..3 {
 				result[i][j] = self[i][j] - other[i][j];
 			}
 		}
@@ -164,7 +205,7 @@ impl Mul for Transform2D {
 	fn mul(self, other: Self) -> Self {
 		let mut result = Self::ZERO;
 		for i in 0..3 {
-			for j in 0..2 {
+			for j in 0..3 {
 				result[i][j] = other[i][j] * self[i][j]
 			}
 		}
@@ -178,7 +219,7 @@ impl Mul<f32> for Transform2D {
 	fn mul(self, other: f32) -> Self {
 		let mut result = Self::ZERO;
 		for i in 0..3 {
-			for j in 0..2 {
+			for j in 0..3 {
 				result[i][j] = self[i][j] * other;
 			}
 		}
@@ -200,7 +241,7 @@ impl Div<f32> for Transform2D {
 	fn div(self, other: f32) -> Self {
 		let mut result = Self::ZERO;
 		for i in 0..3 {
-			for j in 0..2 {
+			for j in 0..3 {
 				result[i][j] = self[i][j] / other;
 			}
 		}
@@ -214,7 +255,7 @@ impl Div for Transform2D {
 	fn div(self, other: Self) -> Self {
 		let mut result = Self::ZERO;
 		for i in 0..3 {
-			for j in 0..2 {
+			for j in 0..3 {
 				result[i][j] = self[i][j] / other[i][j];
 			}
 		}
@@ -262,14 +303,7 @@ impl Shr for Transform2D {
 	type Output = Self;
 
 	fn shr(self, other: Self) -> Self {
-		Self::column_major(
-			self[0][0] * other[0][0] + self[1][0] * other[0][1],
-			self[0][0] * other[1][0] + self[1][0] * other[1][1],
-			self[0][0] * other[2][0] + self[1][0] * other[2][1] + self[2][0],
-			self[0][1] * other[0][0] + self[1][1] * other[0][1],
-			self[0][1] * other[1][0] + self[1][1] * other[1][1],
-			self[0][1] * other[2][0] + self[1][1] * other[2][1] + self[2][1],
-		)
+		self.mul(other)
 	}
 }
 
@@ -307,10 +341,7 @@ impl Shr<Vec2> for Transform2D {
 	type Output = Vec2;
 
 	fn shr(self, other: Vec2) -> Vec2 {
-		let mut result = Vec2::ZERO;
-		result.x = self[0][0] * other.x + self[1][0] * other.y + self[2][0];
-		result.y = self[0][1] * other.x + self[1][1] * other.y + self[2][1];
-		result
+		self.apply(other)
 	}
 }
 
@@ -321,8 +352,8 @@ impl ShrAssign for Transform2D {
 }
 
 
-impl From<[[f32; 2]; 3]> for Transform2D {
-	fn from(array: [[f32; 2]; 3]) -> Self {
+impl From<[[f32; 3]; 3]> for Transform2D {
+	fn from(array: [[f32; 3]; 3]) -> Self {
 		Self(array)
 	}
 }

@@ -6,11 +6,15 @@ use arboard::Clipboard;
 use time::{Duration, OffsetDateTime};
 use winit::{application::ApplicationHandler, dpi::{PhysicalPosition, PhysicalSize, Position, Size}, event_loop::ActiveEventLoop, window::{self, Icon, Window}};
 
-use crate::{layout::ROOT_LAYOUT_ID, math::{rect::Rect, vec2::Vec2}, render::{backend::{crate_wgpu_state, Uniform, WgpuState}, painter::Painter}, widgets::Signal, App, Context};
+use crate::{math::{rect::Rect, vec2::Vec2}, render::{backend::{crate_wgpu_state, Uniform, WgpuState}, painter::Painter}, widgets::Signal, App, Context};
+
+use crate::layout::ROOT_LAYOUT_ID;
 
 use super::event::{OutputEvent, Theme};
 
 const STACK_SIZE: u32 = 64;
+/// Controls the maximum number of characters that can be uploaded per frame.
+pub static MAXIUM_CHAR_UPLOAD_PER_FRAME: usize = 128;
 
 /// Settings for the window.
 /// 
@@ -78,24 +82,25 @@ impl Default for WindowSettings {
 }
 
 /// A Simple window manager for Nablo UI.
-#[allow(dead_code)]
+// #[allow(dead_code)]
 pub struct Manager<'w, A, S: Signal> 
-where A: App<S>,
+where A: App<Signal = S>,
 {
 	/// The settings of the window.
 	pub window_settings: WindowSettings,
 	/// The app to run.
 	pub app: A,
-	ctx: Context<S>,
+	ctx: Context<S, A>,
 	window: Option<(Arc<Window>, WgpuState<'w>)>,
 	last_event_time: Duration,
 	last_draw_time: Duration,
 	clipboard: Option<Clipboard>,
+	// font_texture_to_upload: Vec<(Vec<u8>, char, FontId)>,
 }
 
 impl<'w, A, S> ApplicationHandler for Manager<'w, A, S> 
 where 
-	A: App<S>,
+	A: App<Signal = S>,
 	S: Signal + 'static,
 {
 	fn resumed(&mut self, event_loop: &ActiveEventLoop) {
@@ -149,6 +154,7 @@ where
 				state.resized(self.ctx.input_state.window_size);
 				self.ctx.input_state.scale_factor = window.scale_factor();
 			}
+			self.ctx.layout.make_all_dirty();
 		}
 
 		// if let winit::event::WindowEvent::Focused(focused) = &event {
@@ -180,7 +186,8 @@ where
 
 		if should_handle_events {
 			self.last_event_time = event_delta_time;
-			self.ctx.layout.handle_events(ROOT_LAYOUT_ID, &mut self.ctx.input_state);
+			// self.ctx.layout.handle_continous_events(&mut self.ctx.input_state);
+			self.ctx.layout.handle_events(ROOT_LAYOUT_ID, &mut self.ctx.input_state, &mut self.app);
 			let signals = self.ctx.input_state.signals_to_send.drain(..).collect::<Vec<_>>();
 			for signal in signals {
 				self.app.on_signal(&mut self.ctx, signal);
@@ -207,6 +214,11 @@ where
 				if self.ctx.input_state.redraw_requested {
 					window.request_redraw();
 				}
+
+				// let len = self.font_texture_to_upload.len();
+				// for (data, chr, font_id) in self.font_texture_to_upload.drain(0..len.min(MAXIUM_CHAR_UPLOAD_PER_FRAME)).collect::<Vec<_>>() {
+				// 	state.add_char(font_id, chr, data);
+				// }
 
 				for event in output_events {
 					match event {
@@ -243,6 +255,7 @@ where
 							state.clear_texture();
 						},
 						OutputEvent::AddChar(data, chr, font_id) => {
+							// self.font_texture_to_upload.push((data, chr, font_id));
 							state.add_char(font_id, chr, data);
 						},
 						OutputEvent::RemoveFont(font_id) => {
@@ -296,7 +309,7 @@ where
 			}
 			
 			self.app.on_draw_frame(&mut self.ctx);
-			let refresh_area = self.ctx.layout.handle_draw(&mut painter);
+			let refresh_area = self.ctx.layout.handle_draw(&mut painter, self.ctx.input_state.window_size);
 			let refresh_area = if self.ctx.force_redraw_per_frame {
 				Rect::WINDOW
 			}else if let Some(area) = refresh_area {
@@ -365,7 +378,7 @@ where
 }
 
 impl<A, S: Signal + 'static> Manager<'_, A, S>
-where A: App<S>,
+where A: App<Signal = S>,
 {
 	/// Creates a new manager with the given app.
 	pub fn new(app: A, font_data: Vec<u8>, font_index: u32) -> Self {
@@ -383,6 +396,7 @@ where A: App<S>,
 					None
 				}
 			},
+			// font_texture_to_upload: vec!(),
 		}
 	}
 

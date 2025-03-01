@@ -19,9 +19,9 @@ pub use crate::widgets::floating_container::*;
 macro_rules! deligate_signal_generator {
 	($($widget: ty, $style: ty),* $(,)?) => {
 		$(
-			impl<S: Signal> $widget {
+			impl<S: Signal, A: App<Signal = S>> $widget {
 				/// Add a click signal to the widget.
-				pub fn on_click(mut self, signal: impl Fn(&mut $style) -> S + 'static) -> Self {
+				pub fn on_click(mut self, signal: impl Fn(&mut A, &mut $style) -> S + 'static) -> Self {
 					self.signals = self.signals.on_click(signal);
 					self
 				}
@@ -33,7 +33,7 @@ macro_rules! deligate_signal_generator {
 				}
 
 				/// Add a pressed signal to the widget.
-				pub fn on_pressed(mut self, signal: impl Fn(&mut $style) -> S + 'static) -> Self {
+				pub fn on_pressed(mut self, signal: impl Fn(&mut A, &mut $style) -> S + 'static) -> Self {
 					self.signals = self.signals.on_pressed(signal);
 					self
 				}
@@ -45,7 +45,7 @@ macro_rules! deligate_signal_generator {
 				}
 
 				/// Add a released signal to the widget.
-				pub fn on_released(mut self, signal: impl Fn(&mut $style) -> S + 'static) -> Self {
+				pub fn on_released(mut self, signal: impl Fn(&mut A, &mut $style) -> S + 'static) -> Self {
 					self.signals = self.signals.on_released(signal);
 					self
 				}
@@ -57,7 +57,7 @@ macro_rules! deligate_signal_generator {
 				}
 
 				/// Add a hover signal to the widget.
-				pub fn on_hover(mut self, signal: impl Fn(&mut $style) -> S + 'static) -> Self {
+				pub fn on_hover(mut self, signal: impl Fn(&mut A, &mut $style) -> S + 'static) -> Self {
 					self.signals = self.signals.on_hover(signal);
 					self
 				}
@@ -69,7 +69,7 @@ macro_rules! deligate_signal_generator {
 				}
 
 				/// Add an unhover signal to the widget.
-				pub fn on_unhover(mut self, signal: impl Fn(&mut $style) -> S + 'static) -> Self {
+				pub fn on_unhover(mut self, signal: impl Fn(&mut A, &mut $style) -> S + 'static) -> Self {
 					self.signals = self.signals.on_unhover(signal);
 					self
 				}
@@ -81,7 +81,7 @@ macro_rules! deligate_signal_generator {
 				}
 
 				/// Add a drag signal to the widget.
-				pub fn on_drag(mut self, signal: impl Fn(&mut $style, Vec2) -> S + 'static) -> Self {
+				pub fn on_drag(mut self, signal: impl Fn(&mut A, &mut $style, Vec2) -> S + 'static) -> Self {
 					self.signals = self.signals.on_drag(signal);
 					self
 				}
@@ -93,7 +93,7 @@ macro_rules! deligate_signal_generator {
 				}
 
 				/// Add a double click signal to the widget.
-				pub fn on_double_click(mut self, signal: impl Fn(&mut $style) -> S + 'static) -> Self {
+				pub fn on_double_click(mut self, signal: impl Fn(&mut A, &mut $style) -> S + 'static) -> Self {
 					self.signals = self.signals.on_double_click(signal);
 					self
 				}
@@ -109,16 +109,16 @@ macro_rules! deligate_signal_generator {
 }
 
 deligate_signal_generator!{ 
-	Label<S>, LabelInner,
-	Canvas<S>, CanvasInner,
-	Button<S>, ButtonInner,
-	Divider<S>, DividerInner,
-	Card<S>, CardInner,
-	Collapse<S>, CollapseInner,
-	InputBox<S>, InputBoxInner,
-	Radio<S>, RadioInner,
-	Slider<S>, SliderInner,
-	DraggableValue<S>, DraggableValueInner,
-	ProgressBar<S>, ProgressBarInner,
-	FloatingContainer<S>, FloatingContainerInner,
+	Label<S, A>, LabelInner,
+	Canvas<S, A>, CanvasInner,
+	Button<S, A>, ButtonInner,
+	Divider<S, A>, DividerInner,
+	Card<S, A>, CardInner,
+	Collapse<S, A>, CollapseInner,
+	InputBox<S, A>, InputBoxInner,
+	Radio<S, A>, RadioInner,
+	Slider<S, A>, SliderInner,
+	DraggableValue<S, A>, DraggableValueInner,
+	ProgressBar<S, A>, ProgressBarInner,
+	FloatingContainer<S, A>, FloatingContainerInner,
 }

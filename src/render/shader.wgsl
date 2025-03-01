@@ -2,12 +2,40 @@ struct DrawCommand {
 	command: u32,
 	stroke_width: f32,
 	parameter: f32,
+	smooth_function: u32,
 	slots: mat4x4<f32>,
 	operation: u32,
-	smooth_function: u32,
 	smooth_parameter: f32,
 	lhs: u32,
 }
+
+// struct DrawCommand {
+// 	command: u32,
+// 	stroke_width: f32,
+// 	parameter: f32,
+// 	clip_rect_lt_x: f32,
+// 	clip_rect_lt_y: f32,
+// 	clip_rect_rb_x: f32,
+// 	clip_rect_rb_y: f32,
+// 	smooth_function: u32,
+// 	slots: mat4x4<f32>,
+// 	operation: u32,
+// 	smooth_parameter: f32,
+// 	lhs: u32,
+// }
+
+// struct DrawCommand {
+// 	command: u32,
+// 	stroke_width: f32,
+// 	parameter: f32,
+// 	clip_rect_lt_x: f32,
+// 	clip_rect_lt_y: f32,
+// 	slots: mat4x4<f32>,
+// 	operation: u32,
+// 	clip_rect_rb_x: f32,
+// 	clip_rect_rb_y: f32,
+// 	lhs: u32,
+// }
 
 struct Uniforms {
 	window_size: vec2<f32>,
@@ -19,6 +47,7 @@ struct Uniforms {
 }
 
 const EDGE_WIDTH: f32 = 1.0;
+const SPREAD_FACTOR: f32 = 1.0;
 const TEXTURE_SIZE: vec2<f32> = vec2<f32>(2560.0, 2560.0);
 const FONT_TEXTURE_SIZE: vec2<f32> = vec2<f32>(2048.0, 2048.0);
 const CHAR_SIZE: vec2<f32> = vec2<f32>(64.0, 64.0);
@@ -187,16 +216,10 @@ fn ray(pos: vec2<f32>, start: vec2<f32>, direction: vec2<f32>, is_left: bool) ->
 
 fn quad_half_plane(pos: vec2<f32>, start: vec2<f32>, ctrl: vec2<f32>, end: vec2<f32>) -> f32 {
 	var quad = 0.0;
-	// var ray_1 = 0.0;
-	// var ray_2 = 0.0;
 	if cross(start - ctrl, end - ctrl) > 0.0 {
 		quad = quad_bezier(pos, start, ctrl, end);
-		// ray_1 = ray(pos, start, ctrl - start, true);
-		// ray_2 = ray(pos, end, ctrl - end, false);
 	}else {
 		quad = quad_bezier(pos, end, ctrl, start);
-		// ray_1 = ray(pos, start, ctrl - start, false);
-		// ray_2 = ray(pos, end, ctrl - end, true);
 	}
 	return quad;
 }
@@ -307,7 +330,7 @@ const DrawCircle: u32 = 1u;
 const DrawTriangle: u32 = 2u;
 const DrawRectangle: u32 = 3u;
 const DrawHalfPlane: u32 = 4u;
-const DrawQuadHalfPlane: u32 = 5u;
+const DrawQuadPlane: u32 = 5u;
 const DrawSDFTexture: u32 = 6u;
 const DrawChar: u32 = 7u;
 const Fill: u32 = 8u;
@@ -441,9 +464,25 @@ fn fs_main(@builtin(position) clip_pos: vec4<f32>) -> @location(0) vec4f {
 			break;
 		}
 
+
 		var temp = 0.0;
 		var grad = vec2f(0.0, 0.0);
-		let p = (inverse(current_transform) * vec3f(pos, 1.0)).xy;
+		let transformed = (inverse(current_transform) * vec3f(pos, 1.0)); 
+		var p = transformed.xy;
+		if transformed.z != 0.0 {
+			p /= transformed.z;
+		}
+
+		// if (p.x <= draw_commands[current_command_index].clip_rect_lt_x || 
+		// 	p.x >= draw_commands[current_command_index].clip_rect_rb_x ||
+		// 	p.y <= draw_commands[current_command_index].clip_rect_lt_y || 
+		// 	p.y >= draw_commands[current_command_index].clip_rect_rb_y) && 
+		// 	draw_commands[current_command_index].command < Fill
+		// {
+		// 	current_command_index += 1u;
+		// 	continue;
+		// }
+		
 		let p_plus_x = (inverse(current_transform) * vec3f(pos + vec2f(EPSILON, 0.0), 1.0)).xy;
 		let p_plus_y = (inverse(current_transform) * vec3f(pos + vec2f(0.0, EPSILON), 1.0)).xy;
 		let p_minus_x = (inverse(current_transform) * vec3f(pos - vec2f(EPSILON, 0.0), 1.0)).xy;
@@ -515,7 +554,7 @@ fn fs_main(@builtin(position) clip_pos: vec4<f32>) -> @location(0) vec4f {
 				grad.x = (half_plane(p_plus_x, start, end) - half_plane(p_minus_x, start, end)) / (EPSILON * 2.0);
 				grad.y = (half_plane(p_plus_y, start, end) - half_plane(p_minus_y, start, end)) / (EPSILON * 2.0);
 			}
-			case DrawQuadHalfPlane: {
+			case DrawQuadPlane: {
 				let start = vec2f(
 					slots[0][0], 
 					slots[1][0],
@@ -655,6 +694,9 @@ fn fs_main(@builtin(position) clip_pos: vec4<f32>) -> @location(0) vec4f {
 				current_transform[0][1] = slots[3][0];
 				current_transform[1][1] = slots[0][1];
 				current_transform[2][1] = slots[1][1];
+				current_transform[0][2] = slots[2][1];
+				current_transform[1][2] = slots[3][1];
+				current_transform[2][2] = slots[0][2];
 			}
 			case SetBlendMode: {
 				current_blend_mode = u32(slots[0][0]);
@@ -665,6 +707,7 @@ fn fs_main(@builtin(position) clip_pos: vec4<f32>) -> @location(0) vec4f {
 			}
 			default: {
 				current_command_index += 1u;
+				// current_color = vec4f(1.0, 0.0, 1.0, 1.0)
 				continue;
 			}
 		}

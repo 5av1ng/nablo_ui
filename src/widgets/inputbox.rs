@@ -1,6 +1,6 @@
 //! A simple input box widget.
 
-use crate::{layout::{Layout, LayoutId}, prelude::{AnimatedColor, Animatedf32, Color, FillMode, FontId, ImeString, InputState, Key, Painter, Rect, Vec2, Vec4}};
+use crate::{layout::{Layout, LayoutId}, prelude::{AnimatedColor, Animatedf32, Color, FillMode, FontId, ImeString, InputState, Key, Painter, Rect, Vec2, Vec4}, App};
 
 use super::{styles::{BRIGHT_FACTOR, CONTENT_TEXT_SIZE, DEFAULT_PADDING, DEFAULT_ROUNDING, DISABLE_TEXT_COLOR, INPUT_BACKGROUND_COLOR, INPUT_BORDER_COLOR, PRIMARY_COLOR, SECONDARY_TEXT_COLOR, SELECTED_TEXT_COLOR}, Signal, SignalGenerator, Widget};
 
@@ -8,7 +8,7 @@ use super::{styles::{BRIGHT_FACTOR, CONTENT_TEXT_SIZE, DEFAULT_PADDING, DEFAULT_
 pub static WORD_SPLITER: &[char] = &[' ', '\t', '\n', ';', ',', '.', ':', '!', '?', '(', ')', '[', ']', '{', '}', '<', '>', '/', '\\', '\'', '\"', '@', '#', '$', '%', '^', '&', '*', '-', '_', '+', '=', '|', '`', '~'];
 
 /// A simple input box widget.
-pub struct InputBox<S: Signal> {
+pub struct InputBox<S: Signal, A: App<Signal = S>> {
 	/// The inner properties of the input box.
 	pub inner: InputBoxInner,
 	/// The signal to send when the input box is submitted.
@@ -22,7 +22,7 @@ pub struct InputBox<S: Signal> {
 	#[allow(clippy::type_complexity)]
 	pub on_change: Option<Box<dyn Fn(&mut InputBoxInner) -> S>>,
 	/// The general signal to send when the input box is interacted with.
-	pub signals: SignalGenerator<S, InputBoxInner>,
+	pub signals: SignalGenerator<S, InputBoxInner, A>,
 	is_typing: bool,
 	hover_factor: Animatedf32,
 }
@@ -432,7 +432,7 @@ impl Pointer {
 	}
 }
 
-impl<S: Signal> Default for InputBox<S> {
+impl<S: Signal, A: App<Signal = S>> Default for InputBox<S, A> {
 	fn default() -> Self {
 		Self {
 			inner: InputBoxInner::default(),
@@ -445,7 +445,7 @@ impl<S: Signal> Default for InputBox<S> {
 	}
 }
 
-impl<S: Signal> InputBox<S> {
+impl<S: Signal, A: App<Signal = S>> InputBox<S, A> {
 	/// Create a new input box.
 	pub fn new(font: FontId, font_size: f32) -> Self {
 		Self {
@@ -681,10 +681,11 @@ impl Validator for SimpleValidator {
 	}
 }
 
-impl<S: Signal> Widget for InputBox<S> {
+impl<S: Signal, A: App<Signal = S>> Widget for InputBox<S, A> {
 	type Signal = S;
+	type Application = A;
 
-	fn size(&self, _: LayoutId, _: &Painter, _: &Layout<Self::Signal>) -> Vec2 {
+	fn size(&self, _: LayoutId, _: &Painter, _: &Layout<Self::Signal, A>) -> Vec2 {
 		self.inner.size + self.inner.padding * 2.0
 	}
 
@@ -739,8 +740,8 @@ impl<S: Signal> Widget for InputBox<S> {
 		}
 	}
 
-	fn handle_event(&mut self, input_state: &mut InputState<Self::Signal>, id: LayoutId, area: Rect, _: Vec2) -> bool {
-		let res = self.signals.generate_signals(&mut self.inner, input_state, id, area, true, false);
+	fn handle_event(&mut self, app: &mut A, input_state: &mut InputState<Self::Signal>, id: LayoutId, area: Rect, _: Vec2) -> bool {
+		let res = self.signals.generate_signals(app, &mut self.inner, input_state, id, area, true, false);
 
 		if input_state.is_touch_in(area) {
 			self.hover_factor.set(1.0);
@@ -840,7 +841,11 @@ impl<S: Signal> Widget for InputBox<S> {
 			}
 		}
 
-		self.is_typing || self.inner.border_color.is_animating()
+		self.is_typing || self.inner.border_color.is_animating() || self.hover_factor.is_animating()
+	}
+
+	fn continuous_event_handling(&self) -> bool {
+		self.is_typing
 	}
 }
 

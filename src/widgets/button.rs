@@ -1,15 +1,15 @@
 //! Button widget implementation.
 
-use crate::{layout::{Layout, LayoutId}, prelude::{Animatedf32, InputState, Rect, Vec2, Vec4}, render::{font::FontId, painter::Painter, shape::FillMode}};
+use crate::{layout::{Layout, LayoutId}, prelude::{Animatedf32, InputState, Rect, Vec2, Vec4}, render::{font::FontId, painter::Painter, shape::FillMode}, App};
 
 use super::{styles::{BRIGHT_FACTOR, CONTENT_TEXT_SIZE, DEFAULT_PADDING, DEFAULT_ROUNDING, DISABLE_COLOR, DISABLE_TEXT_COLOR, PRIMARY_COLOR, PRIMARY_TEXT_COLOR, TITLE_TEXT_SIZE}, Signal, SignalGenerator, Widget};
 
 /// Button widget.
-pub struct Button<S: Signal> {
+pub struct Button<S: Signal, A: App<Signal = S>> {
 	/// Button's inner properties.
 	pub inner: ButtonInner,
 	/// Button's signal generator.
-	pub signals: SignalGenerator<S, ButtonInner>,
+	pub signals: SignalGenerator<S, ButtonInner, A>,
 	hover_factor: Animatedf32,
 	pressed_factor: Animatedf32,
 	clicked_factor: Animatedf32,
@@ -45,7 +45,7 @@ impl Default for ButtonInner {
 	}
 }
 
-impl<S: Signal> Default for Button<S> {
+impl<S: Signal, A: App<Signal = S>> Default for Button<S, A> {
 	fn default() -> Self {
 		Self {
 			inner: ButtonInner::default(),
@@ -85,7 +85,7 @@ pub enum ButtonSize {
 	Custom(f32),
 }
 
-impl<S: Signal> Button<S> {
+impl<S: Signal, A: App<Signal = S>> Button<S, A> {
 	/// Creates a new button with the given label and size.
 	pub fn new(label: impl Into<String>) -> Self {
 		Self {
@@ -177,8 +177,9 @@ impl<S: Signal> Button<S> {
 	}
 }
 
-impl<S: Signal> Widget for Button<S> {
+impl<S: Signal, A: App<Signal = S>> Widget for Button<S, A> {
 	type Signal = S;
+	type Application = A;
 
 	fn draw(&mut self, painter: &mut Painter, _: Vec2) {
 		let size = self.calc_size(painter);
@@ -247,11 +248,18 @@ impl<S: Signal> Widget for Button<S> {
 		painter.draw_text(text_pos, self.inner.font, font_size, &self.inner.label);
 	}
 
-	fn size(&self, _: LayoutId, painter: &Painter, _: &Layout<Self::Signal>) -> Vec2 {
+	fn size(&self, _: LayoutId, painter: &Painter, _: &Layout<Self::Signal, A>) -> Vec2 {
 		self.calc_size(painter)
 	}
 
-	fn handle_event(&mut self, input_state: &mut InputState<Self::Signal>, id: LayoutId, area: Rect, _: Vec2) -> bool {
+	fn handle_event(
+		&mut self,
+		app: &mut Self::Application,
+		input_state: &mut InputState<Self::Signal>, 
+		id: LayoutId, 
+		area: Rect, 
+		_: Vec2
+	) -> bool {
 		let mouse_pos = input_state.touch_positions();
 		let mouse_over = mouse_pos.iter().any(|pos| area.contains(*pos));
 
@@ -280,12 +288,24 @@ impl<S: Signal> Widget for Button<S> {
 			self.pressed_factor.set(0.0);
 		}
 
-		if self.signals.generate_signals(&mut self.inner, input_state, id, area, false, false).is_clicked {
+		if self.signals.generate_signals(
+			app, 
+			&mut self.inner, 
+			input_state, 
+			id, 
+			area, 
+			false, 
+			false
+		).is_clicked {
 			self.clicked_factor.set_start(0.0);
 			self.clicked_factor.set(1.0);
 		}
 
 
 		self.hover_factor.is_animating() || self.pressed_factor.is_animating() || self.clicked_factor.is_animating()
+	}
+
+	fn continuous_event_handling(&self) -> bool {
+		false
 	}
 }

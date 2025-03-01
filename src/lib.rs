@@ -22,9 +22,9 @@ pub mod prelude;
 /// 
 /// Saves the layout, input state, and other data for the Nablo UI.
 #[derive(Default)]
-pub struct Context<S: Signal> {
+pub struct Context<S: Signal, A: App<Signal = S>> {
 	/// The layout of the app.
-	pub layout: Layout<S>,
+	pub layout: Layout<S, A>,
 	/// If true, the app will be redrawn every frame, even if there are no changes,
 	/// and will redraw the entire screen instead of just the changed parts.
 	pub force_redraw_per_frame: bool,
@@ -39,7 +39,7 @@ pub struct Context<S: Signal> {
 	// padding: Vec2,
 }
 
-impl <S: Signal> Context<S> {
+impl<S: Signal, A: App<Signal = S>> Context<S, A> {
 	/// Creates a new context with default values.
 	pub fn new(font_data: Vec<u8>, index: u32) -> Self {
 		let mut font_pool = FontPool::new();
@@ -127,26 +127,28 @@ impl <S: Signal> Context<S> {
 }
 
 /// The main trait for Nablo UI.
-pub trait App<S: Signal> {
+pub trait App: 'static + Sized {
+	type Signal: Signal;
+
 	/// Here you can setup your app with the given context. And add widgets to the layout.
-	fn on_start(&mut self, ctx: &mut Context<S>);
+	fn on_start(&mut self, ctx: &mut Context<Self::Signal, Self>);
 	/// Here you can handle the given signal emitted by widgets.
-	fn on_signal(&mut self, ctx: &mut Context<S>, signal: SignalWrapper<S>);
+	fn on_signal(&mut self, ctx: &mut Context<Self::Signal, Self>, signal: SignalWrapper<Self::Signal>);
 	/// Here you can update your app every event loop frame.
-	fn on_event_frame(&mut self, ctx: &mut Context<S>) {
+	fn on_event_frame(&mut self, ctx: &mut Context<Self::Signal, Self>) {
 		let _ = ctx;
 	}
 	/// Here you can hanlde your app every draw loop frame.
-	fn on_draw_frame(&mut self, ctx: &mut Context<S>) {
+	fn on_draw_frame(&mut self, ctx: &mut Context<Self::Signal, Self>) {
 		let _ = ctx;
 	}
 	/// Will be called when the os requests the app to exit. If you want to exit the app, return true.
-	fn on_request_exit(&mut self, ctx: &mut Context<S>) -> bool { 
+	fn on_request_exit(&mut self, ctx: &mut Context<Self::Signal, Self>) -> bool { 
 		let _ = ctx;
 		true 
 	}
 	/// Here you can do some cleanup when the app exits.
-	fn on_exit(&mut self, ctx: &mut Context<S>) {
+	fn on_exit(&mut self, ctx: &mut Context<Self::Signal, Self>) {
 		let _ = ctx;
 	}
 }

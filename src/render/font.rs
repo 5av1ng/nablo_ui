@@ -2,12 +2,15 @@
 
 use std::collections::{HashMap, HashSet};
 
+use rayon::prelude::*;
+
 use image::DynamicImage;
+use indexmap::IndexSet;
 use mint::Vector2;
 use msdf::{GlyphLoader, Projection, SDFTrait};
 use owned_ttf_parser::{AsFaceRef, OwnedFace};
 
-use crate::{math::vec2::Vec2, window::event::OutputEvent};
+use crate::{math::vec2::Vec2, prelude::MAXIUM_CHAR_UPLOAD_PER_FRAME, window::event::OutputEvent};
 
 /// The size of the font texture in pixels.
 /// 
@@ -169,7 +172,7 @@ pub(crate) struct Font {
 	/// Contains the font data.
 	pub face: OwnedFace,
 	/// The characters that need to be added to the texture.
-	pub to_add_to_texture: HashSet<char>,
+	pub to_add_to_texture: IndexSet<char>,
 	pub char_map: HashMap<char, Glyph>,
 	pub anscender: f32,
 	/// warpped line height.
@@ -197,7 +200,7 @@ impl Font {
 		let mut font = Self {
 			face,
 			char_map: HashMap::new(),
-			to_add_to_texture: HashSet::new(),
+			to_add_to_texture: IndexSet::new(),
 			anscender,
 			line_height,
 			base_units_per_em,
@@ -276,7 +279,8 @@ impl Font {
 
 	pub(crate) fn generate_textures(&mut self, font_id: FontId) -> Vec<OutputEvent> {
 		let face = self.face.as_face_ref();
-		let chars = self.to_add_to_texture.drain().collect::<Vec<_>>();
+		let len = self.to_add_to_texture.len();
+		let chars = self.to_add_to_texture.drain(0..len.min(MAXIUM_CHAR_UPLOAD_PER_FRAME)).collect::<Vec<_>>();
 		let factor = face.height() as f32 / self.base_units_per_em;
 		let descender = face.descender() as f32;
 		let proj = Projection {
@@ -289,19 +293,10 @@ impl Font {
 				y: - descender as f64,
 			},
 		};
-		let mut out = vec!();
-		for chr in chars {
+		chars.into_par_iter().filter_map(|chr| {
 			// println!("generating texture for char: {}", chr);
-			let index = if let Some(index) = face.glyph_index(chr) {
-				index
-			}else {
-				continue;
-			};
-			let shape = if let Some(shape) = face.load_shape(index) {
-				shape
-			}else {
-				continue;
-			};
+			let index = face.glyph_index(chr)?;
+			let shape = face.load_shape(index)?;
 
 			let colored_shape = shape.color_edges_ink_trap(3.0);
 
@@ -319,9 +314,7 @@ impl Font {
 
 			let data = dynamic_image.into_vec();
 
-			out.push(OutputEvent::AddChar(data, chr, font_id));
-		}
-		
-		out
+			Some(OutputEvent::AddChar(data, chr, font_id))
+		}).collect::<Vec<_>>()
 	}
 }

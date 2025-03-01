@@ -1,15 +1,15 @@
 //! A widget that can be dragged to change its value.
 
-use crate::{layout::{Layout, LayoutId}, prelude::{Animatedf32, FillMode, FontId, InputState, Painter, Rect, Vec2, Vec4}};
+use crate::{layout::{Layout, LayoutId}, prelude::{Animatedf32, FillMode, FontId, InputState, Painter, Rect, Vec2, Vec4}, App};
 
 use super::{styles::{BRIGHT_FACTOR, CONTENT_TEXT_SIZE, DEFAULT_PADDING, DEFAULT_ROUNDING, INPUT_BACKGROUND_COLOR, INPUT_BORDER_COLOR, SECONDARY_TEXT_COLOR}, Signal, SignalGenerator, Widget};
 
 /// A draggable value widget.
-pub struct DraggableValue<S: Signal> {
+pub struct DraggableValue<S: Signal, A: App<Signal = S>> {
 	/// The inner properties of the draggable value widget.
 	pub inner: DraggableValueInner,
 	/// The signal to emit when the value changes.
-	pub signals: SignalGenerator<S, DraggableValueInner>,
+	pub signals: SignalGenerator<S, DraggableValueInner, A>,
 	hover_factor: Animatedf32,
 	pressed_factor: Animatedf32,
 }
@@ -71,7 +71,7 @@ impl Default for DraggableValueInner {
 	}
 }
 
-impl<S: Signal> Default for DraggableValue<S> {
+impl<S: Signal, A: App<Signal = S>> Default for DraggableValue<S, A> {
 	fn default() -> Self {
 		Self {
 			inner: DraggableValueInner::default(),
@@ -82,7 +82,7 @@ impl<S: Signal> Default for DraggableValue<S> {
 	}
 }
 
-impl<S: Signal> DraggableValue<S> {
+impl<S: Signal, A: App<Signal = S>> DraggableValue<S, A> {
 	/// Creates a new draggable value widget.
 	/// 
 	/// # Panics
@@ -220,10 +220,11 @@ impl<S: Signal> DraggableValue<S> {
 	}
 }
 
-impl<S: Signal> Widget for DraggableValue<S> {
+impl<S: Signal, A: App<Signal = S>> Widget for DraggableValue<S, A> {
 	type Signal = S;
+	type Application = A;
 
-	fn size(&self, _: LayoutId, painter: &Painter, _: &Layout<Self::Signal>) -> Vec2 {
+	fn size(&self, _: LayoutId, painter: &Painter, _: &Layout<Self::Signal, A>) -> Vec2 {
 		let text_to_draw = format!("{}{:.3$}{}", 
 			self.inner.prefix, 
 			self.inner.value, 
@@ -264,8 +265,8 @@ impl<S: Signal> Widget for DraggableValue<S> {
 		painter.draw_text(self.inner.padding, self.inner.font, self.inner.font_size, text_to_draw);
 	}
 
-	fn handle_event(&mut self, input_state: &mut InputState<Self::Signal>, from: LayoutId, area: Rect, _: Vec2) -> bool {
-		let res = self.signals.generate_signals(&mut self.inner, input_state, from, area, true, true);
+	fn handle_event(&mut self, app: &mut A, input_state: &mut InputState<Self::Signal>, from: LayoutId, area: Rect, _: Vec2) -> bool {
+		let res = self.signals.generate_signals(app, &mut self.inner, input_state, from, area, true, true);
 		
 		if input_state.any_touch_pressing_on(area) {
 			self.hover_factor.set(1.0);
@@ -300,5 +301,9 @@ impl<S: Signal> Widget for DraggableValue<S> {
 		};
 
 		self.hover_factor.is_animating() || self.pressed_factor.is_animating() || changed
+	}
+
+	fn continuous_event_handling(&self) -> bool {
+		false
 	}
 }

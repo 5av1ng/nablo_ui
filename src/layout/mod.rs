@@ -1,12 +1,14 @@
 //! A tree-based layout for the Nablo UI.
 
 mod macros;
+mod quad_tree;
 
 use std::{any::Any, collections::{HashMap, HashSet, VecDeque}, fmt::Display, hash::Hash};
 
 use indexmap::{IndexMap, IndexSet};
+// use quad_tree::QuadTree;
 
-use crate::{math::rect::Rect, prelude::Vec2, render::painter::Painter, widgets::{Signal, Widget}, window::input_state::InputState};
+use crate::{math::rect::Rect, prelude::Vec2, render::painter::Painter, widgets::{Signal, Widget}, window::input_state::InputState, App};
 
 /// A unique identifier for a layout element.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
@@ -22,9 +24,9 @@ impl Display for LayoutId {
 pub const ROOT_LAYOUT_ID: LayoutId = LayoutId(0);
 
 /// A tree-based layout for the Nablo UI.
-pub struct Layout<S: Signal> {
+pub struct Layout<S: Signal, A: App<Signal = S>> {
 	/// we will save the widgets in a hashmap with their id as the key to make it easy to find the widget by id and keep efficient.
-	widgets: HashMap<LayoutId, LayoutElement<S>>,
+	widgets: HashMap<LayoutId, LayoutElement<S, A>>,
 	/// the adjacency list of the tree-based layout.
 	tree: HashMap<LayoutId, Vec<LayoutId>>,
 	/// the inversed adjacency list of the tree-based layout.
@@ -37,10 +39,13 @@ pub struct Layout<S: Signal> {
 	alias_map: HashMap<String, LayoutId>,
 	/// the inversed alias map for the layout.
 	inversed_alias_map: HashMap<LayoutId, String>,
+
+	// quad_tree: QuadTree,
+	continous_widgets: HashSet<LayoutId>,
 }
 
 /// A layout element that holds a widget and its properties.
-pub struct LayoutElement<S: Signal> {
+pub struct LayoutElement<S: Signal, A: App<Signal = S>> {
 	/// The unique identifier of the layout element.
 	pub id: LayoutId,
 	/// The area and the position of the layout element within its parent.
@@ -53,20 +58,20 @@ pub struct LayoutElement<S: Signal> {
 	/// The left top position of the element will be the later element of the tuple.
 	pub area_and_pos: Option<(Rect, Vec2)>,
 	/// The widget of the layout element.
-	pub widget: Box<dyn Widget<Signal = S>>,
+	pub widget: Box<dyn Widget<Signal = S, Application = A>>,
 	/// Whether the widget needs to be redrawn. 
 	/// 
 	/// We will also call the widget is dirty if it needs to be redrawn.
 	pub redraw_request: bool,
 }
 
-impl<S: Signal> Default for Layout<S> {
+impl<S: Signal, A: App<Signal = S>> Default for Layout<S, A> {
 	fn default() -> Self {
 		Self::new()
 	}
 }
 
-impl<S: Signal> Layout<S> {
+impl<S: Signal, A: App<Signal = S>> Layout<S, A> {
 	/// Create a new empty layout.
 	pub fn new() -> Self {
 		Self {
@@ -76,6 +81,8 @@ impl<S: Signal> Layout<S> {
 			next_id: 1,
 			alias_map: HashMap::new(),
 			inversed_alias_map: HashMap::new(),
+			// quad_tree: QuadTree::new(Rect::ZERO),
+			continous_widgets: HashSet::new(),
 		}
 	}
 
@@ -84,7 +91,7 @@ impl<S: Signal> Layout<S> {
 	/// Returns the id of the new widget.
 	/// There will be only one root widget in the layout. 
 	/// If there is already a root widget, the new widget will be switched to the root widget and true will be returned.
-	pub fn insert_root_widget(&mut self, widget: impl Widget<Signal = S>) -> bool {
+	pub fn insert_root_widget(&mut self, widget: impl Widget<Signal = S, Application = A>) -> bool {
 		if let Some(root) = self.widgets.get_mut(&ROOT_LAYOUT_ID) {
 			root.widget = Box::new(widget);
 			root.redraw_request = true;
@@ -110,9 +117,12 @@ impl<S: Signal> Layout<S> {
 	/// Returns the id of the new widget.
 	/// 
 	/// If the parent_id is not in the layout, the widget will not be added and None will be returned.
-	pub fn add_widget(&mut self, parent_id: LayoutId, widget: impl Widget<Signal = S>) -> Option<LayoutId> {
+	pub fn add_widget(&mut self, parent_id: LayoutId, widget: impl Widget<Signal = S, Application = A>) -> Option<LayoutId> {
 		if self.widgets.contains_key(&parent_id) {
 			let id = LayoutId(self.next_id);
+			if widget.continuous_event_handling() {
+				self.continous_widgets.insert(id);
+			}
 			self.next_id += 1;
 			self.widgets.insert(
 				id,
@@ -146,7 +156,7 @@ impl<S: Signal> Layout<S> {
 	/// Returns None if the widget is not in the layout.
 	/// 
 	/// Will also remove all the children of the widget.
-	pub fn remove_widget(&mut self, id: LayoutId) -> Vec<Box<dyn Widget<Signal = S>>> {
+	pub fn remove_widget(&mut self, id: LayoutId) -> Vec<Box<dyn Widget<Signal = S, Application = A>>> {
 		if let Some(element) = self.widgets.remove(&id) {
 			let mut out = vec!();
 			if let Some(children) = self.tree.remove(&id) {
@@ -166,7 +176,7 @@ impl<S: Signal> Layout<S> {
 	}
 
 	/// Remove a widget by its alias.
-	pub fn remove_widget_by_alias(&mut self, alias: impl Into<String>) -> Vec<Box<dyn Widget<Signal = S>>> {
+	pub fn remove_widget_by_alias(&mut self, alias: impl Into<String>) -> Vec<Box<dyn Widget<Signal = S, Application = A>>> {
 		let alias = alias.into();
 		if let Some(id) = self.alias_map.get(&alias) {
 			self.remove_widget(*id)
@@ -176,7 +186,7 @@ impl<S: Signal> Layout<S> {
 	}
 
 	/// Remove a widget's childer.
-	pub fn remove_widget_children(&mut self, id: LayoutId) -> Vec<Box<dyn Widget<Signal = S>>> {
+	pub fn remove_widget_children(&mut self, id: LayoutId) -> Vec<Box<dyn Widget<Signal = S, Application = A>>> {
 		if let Some(children) = self.tree.remove(&id) {
 			let mut out = vec!();
 			for child_id in children {
@@ -189,7 +199,7 @@ impl<S: Signal> Layout<S> {
 	}
 
 	/// Remove a widget's childer by its alias.
-	pub fn remove_widget_children_by_alias(&mut self, alias: impl Into<String>) -> Vec<Box<dyn Widget<Signal = S>>> {
+	pub fn remove_widget_children_by_alias(&mut self, alias: impl Into<String>) -> Vec<Box<dyn Widget<Signal = S, Application = A>>> {
 		let alias = alias.into();
 		if let Some(id) = self.alias_map.get(&alias) {
 			self.remove_widget_children(*id)
@@ -203,7 +213,7 @@ impl<S: Signal> Layout<S> {
 	/// # Panics
 	/// 
 	/// Panics if missing root widget in the layout or the widget is not in the layout.
-	pub fn replace_widget(&mut self, id: LayoutId, widget: impl Widget<Signal = S>) -> Vec<Box<dyn Widget<Signal = S>>> {
+	pub fn replace_widget(&mut self, id: LayoutId, widget: impl Widget<Signal = S, Application = A>) -> Vec<Box<dyn Widget<Signal = S, Application = A>>> {
 		let parent_id = if let Some(parent_id) = self.inverse_tree.get(&id) {
 			*parent_id
 		}else {
@@ -213,6 +223,9 @@ impl<S: Signal> Layout<S> {
 		let out = self.remove_widget_children(id);
 
 		if self.widgets.contains_key(&parent_id) {
+			if widget.continuous_event_handling() {
+				self.continous_widgets.insert(id);
+			}
 			self.widgets.insert(
 				id,
 				LayoutElement {
@@ -243,7 +256,11 @@ impl<S: Signal> Layout<S> {
 	}
 
 	/// Replace the given widget by its alias, will return the old widget and its children if any.
-	pub fn replace_widget_by_alias(&mut self, alias: impl Into<String>, widget: impl Widget<Signal = S>) -> Vec<Box<dyn Widget<Signal = S>>> {
+	pub fn replace_widget_by_alias(
+		&mut self, 
+		alias: impl Into<String>,
+		widget: impl Widget<Signal = S, Application = A>
+	) -> Vec<Box<dyn Widget<Signal = S, Application = A>>> {
 		let alias = alias.into();
 		if let Some(id) = self.alias_map.get(&alias) {
 			self.replace_widget(*id, widget)
@@ -253,7 +270,7 @@ impl<S: Signal> Layout<S> {
 	}
 
 	/// Get the widget by its id.
-	pub fn get_widget<T: Widget<Signal = S> + Any>(&self, id: LayoutId) -> Option<&T> {
+	pub fn get_widget<T: Widget<Signal = S, Application = A> + Any>(&self, id: LayoutId) -> Option<&T> {
 		if let Some(inner) = self.widgets.get(&id) {
 			inner.widget.downcast_ref::<T>()
 		}else {
@@ -262,7 +279,7 @@ impl<S: Signal> Layout<S> {
 	}
 
 	/// Get the widget by its alias.
-	pub fn get_widget_by_alias<T: Widget<Signal = S> + Any>(&self, alias: impl Into<String>) -> Option<&T> {
+	pub fn get_widget_by_alias<T: Widget<Signal = S, Application = A> + Any>(&self, alias: impl Into<String>) -> Option<&T> {
 		let alias = alias.into();
 		if let Some(id) = self.alias_map.get(&alias) {
 			self.get_widget(*id)
@@ -278,7 +295,7 @@ impl<S: Signal> Layout<S> {
 	/// Due to the limitation of Rust's type system, we cannot return a mutable reference to the widget.
 	/// 
 	/// Instead, we will use a closure to modify the widget.
-	pub fn widget_mut<W: Widget<Signal = S> + Any>(&mut self, id: LayoutId, f: impl FnOnce(W) -> W) {
+	pub fn widget_mut<W: Widget<Signal = S, Application = A> + Any>(&mut self, id: LayoutId, f: impl FnOnce(W) -> W) {
 		if let Some(element) = self.widgets.remove(&id) {
 			let area_and_pos = element.area_and_pos;
 			if element.widget.is::<W>() {
@@ -308,7 +325,7 @@ impl<S: Signal> Layout<S> {
 	/// Due to the limitation of Rust's type system, we cannot return a mutable reference to the widget.
 	/// 
 	/// Instead, we will use a closure to modify the widget.
-	pub fn widget_mut_by_alias<W: Widget<Signal = S> + Any>(&mut self, alias: impl Into<String>, f: impl FnOnce(W) -> W) {
+	pub fn widget_mut_by_alias<W: Widget<Signal = S, Application = A> + Any>(&mut self, alias: impl Into<String>, f: impl FnOnce(W) -> W) {
 		let alias = alias.into();
 		if let Some(id) = self.alias_map.get(&alias) {
 			self.widget_mut(*id, f);
@@ -488,6 +505,7 @@ impl<S: Signal> Layout<S> {
 				if let Some(child) = self.widgets.get_mut(&child_id) {
 					let child_pos = parent_pos + child_window.lt();
 					let child_window = child_window.move_by(parent_pos) & parent_window;
+					// self.quad_tree.insert(child_id, child_window);
 					child.area_and_pos = Some((child_window, child_pos));
 					self.reanrrage_widgets(child_window, child_pos, child_id, painter, widget_to_remove);
 					children_set.swap_remove(&child_id);
@@ -544,11 +562,12 @@ impl<S: Signal> Layout<S> {
 	// 	}
 	// }
 
-	pub(crate) fn handle_draw(&mut self, painter: &mut Painter) -> Option<Rect> {
+	pub(crate) fn handle_draw(&mut self, painter: &mut Painter, window_size: Vec2) -> Option<Rect> {
 		let mut widget_to_remove = vec!();
 
 		self.sperate_dirty_widgets();
-		self.reanrrage_widgets(Rect::WINDOW, Vec2::ZERO, ROOT_LAYOUT_ID, painter, &mut widget_to_remove);
+		// self.quad_tree = QuadTree::new(Rect::from_size(window_size));
+		self.reanrrage_widgets(Rect::from_size(window_size), Vec2::ZERO, ROOT_LAYOUT_ID, painter, &mut widget_to_remove);
 		// #[cfg(debug_assertions)]
 		// self.check_overlap(vec![ROOT_LAYOUT_ID]);
 
@@ -614,25 +633,80 @@ impl<S: Signal> Layout<S> {
 		refresh_area
 	}
 
-	pub(crate) fn handle_events(&mut self, parent_id: LayoutId, state: &mut InputState<S>) {
-		// if state.no_events() {
+	// pub(crate) fn handle_continous_events(&mut self, state: &mut InputState<S>) {
+	// 	let widgets = std::mem::take(&mut self.continous_widgets);
+
+	// 	for child_id in widgets {
+	// 		if let Some(element) = self.widgets.get_mut(&child_id) {
+	// 			if let Some((area, pos)) = element.area_and_pos {
+	// 				if area.is_positive() {
+	// 					element.redraw_request |= element.widget.handle_event(state, child_id, area, pos);
+	// 					if element.widget.continuous_event_handling() {
+	// 						self.continous_widgets.insert(child_id);
+	// 					}
+	// 				}
+	// 			}
+	// 		}
+	// 	}
+	// }
+
+	pub(crate) fn handle_events(&mut self, parent_id: LayoutId, state: &mut InputState<S>, app: &mut A) {
+		// if state.no_touch_available() {
 		// 	return;
 		// }
 
 		let children = self.tree.get(&parent_id).unwrap_or(&vec!()).clone();
 		
 		for child_id in children {
-			self.handle_events(child_id, state);
+			self.handle_events(child_id, state, app);
 		}
+
+		// self.continous_widgets.clear();
 
 		state.handling_id = parent_id;
 		if let Some(element) = self.widgets.get_mut(&parent_id) {
 			if let Some((area, pos)) = element.area_and_pos {
 				if area.is_positive() {
-					element.redraw_request |= element.widget.handle_event(state, parent_id, area, pos);
+					element.redraw_request |= element.widget.handle_event(app, state, parent_id, area, pos);
+					if element.widget.continuous_event_handling() {
+						self.continous_widgets.insert(element.id);
+					}
 				}
 			}
 		}
+
+
+		// let widgets = std::mem::take(&mut self.continous_widgets);
+
+		// for child_id in widgets {
+		// 	if let Some(element) = self.widgets.get_mut(&child_id) {
+		// 		if let Some((area, pos)) = element.area_and_pos {
+		// 			if area.is_positive() {
+		// 				element.redraw_request |= element.widget.handle_event(state, child_id, area, pos);
+		// 				if element.widget.continuous_event_handling() {
+		// 					self.continous_widgets.push(child_id);
+		// 				}
+		// 			}
+		// 		}
+		// 	}
+		// }
+
+		// let window = Rect::from_size(state.window_size);
+
+		// for pos in state.get_touch_on(window) {
+		// 	if let Some(id) = self.quad_tree.query_single(state.get_touch_pos(pos).unwrap_or(Vec2::INF)) {
+		// 		if let Some(element) = self.widgets.get_mut(&id) {
+		// 			if let Some((area, pos)) = element.area_and_pos {
+		// 				if area.is_positive() {
+		// 					element.redraw_request |= element.widget.handle_event(state, id, area, pos);
+		// 					if element.widget.continuous_event_handling() {
+		// 						self.continous_widgets.push(id);
+		// 					}
+		// 				}
+		// 			}
+		// 		}
+		// 	}
+		// }
 	}
 
 	pub(crate) fn any_widget_dirty(&self) -> bool {

@@ -4,29 +4,30 @@ use std::collections::HashMap;
 
 use indexmap::IndexMap;
 
-use crate::{layout::{Layout, LayoutId}, prelude::{InputState, Painter, Rect, Vec2}};
+use crate::{layout::{Layout, LayoutId}, prelude::{InputState, Painter, Rect, Vec2}, App};
 
 use super::{Signal, Widget};
 
 /// A struct that can be used to convert a static widget into a reactive widget.
-pub struct Reactive<W, S: Signal> 
+pub struct Reactive<W, S: Signal, A: App<Signal = S>> 
 where 
-	W: Widget<Signal = S>,
+	W: Widget<Signal = S, Application = A>,
 {
 	/// The original static widget.
 	widget: Option<W>,
 	/// The function that used to update the display element of the widget.
 	#[allow(clippy::type_complexity)]
-	pub on_update: Box<dyn Fn(W) -> W>,
+	pub on_update: Box<dyn Fn(&mut A, W) -> W>,
 }
 
-impl <W, S> Reactive<W, S>
+impl <W, S, A> Reactive<W, S, A>
 where 
-	W: Widget<Signal = S>,
+	W: Widget<Signal = S, Application = A>,
 	S: Signal,
+	A: App<Signal = S>,
 {
 	/// Creates a new reactive widget.
-	pub fn new(widget: W, on_update: impl Fn(W) -> W + 'static) -> Self {
+	pub fn new(widget: W, on_update: impl Fn(&mut A, W) -> W + 'static) -> Self {
 		Self { widget: Some(widget), on_update: Box::new(on_update) }
 	}
 
@@ -41,25 +42,27 @@ where
 	}
 }
 
-impl<W, S> Widget for Reactive<W, S> 
+impl<W, S, A> Widget for Reactive<W, S, A> 
 where 
-	W: Widget<Signal = S>,
+	W: Widget<Signal = S, Application = A>,
 	S: Signal,
+	A: App<Signal = S>,
 {
 	type Signal = S;
+	type Application = A;
 
-	fn handle_event(&mut self, input_state: &mut InputState<Self::Signal>, id: LayoutId, area: Rect, pos: Vec2) -> bool {
-		self.get_widget_mut().handle_event(input_state, id, area, pos);
+	fn handle_event(&mut self, app: &mut A, input_state: &mut InputState<Self::Signal>, id: LayoutId, area: Rect, pos: Vec2) -> bool {
+		let widget = self.widget.take().unwrap();
+		self.widget = Some((*self.on_update)(app, widget));
+		self.get_widget_mut().handle_event(app, input_state, id, area, pos);
 		true
 	}
 
 	fn draw(&mut self, painter: &mut Painter, size: Vec2) {
-		let widget = self.widget.take().unwrap();
-		self.widget = Some((*self.on_update)(widget));
 		self.get_widget_mut().draw(painter, size)
 	}
 
-	fn size(&self, id: LayoutId, painter: &Painter, layout: &Layout<Self::Signal>) -> Vec2 {
+	fn size(&self, id: LayoutId, painter: &Painter, layout: &Layout<Self::Signal, A>) -> Vec2 {
 		self.get_widget().size(id, painter, layout)
 	}
 
@@ -69,5 +72,9 @@ where
 
 	fn inner_padding(&self) -> Vec2 {
 		self.get_widget().inner_padding()
+	}
+
+	fn continuous_event_handling(&self) -> bool {
+		self.get_widget().continuous_event_handling()
 	}
 } 

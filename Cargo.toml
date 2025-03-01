@@ -10,7 +10,7 @@ webgl = ["wgpu/webgl"]
 [dependencies]
 wgpu = "24.0.1"
 winit = "0.30.9"
-time = "0.3.37"
+time = { version = "0.3.37", features = ["serde"] }
 bytemuck = "1.21.0"
 cfg-if = "1"
 pollster = "0.4.0"
@@ -21,6 +21,7 @@ owned_ttf_parser = "0.25.0"
 image = "0.25.5"
 mint = "0.5.9"
 lyon_geom = "1.0.6"
-serde = { version = "1.0.217", features = ["derive"] }
+serde = { version = "1.0.218", features = ["derive"] }
 arboard = "3.4.1"
+rayon = "1.10.0"
 # utf8_slice = "1.0.0"
