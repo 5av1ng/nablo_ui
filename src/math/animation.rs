@@ -87,6 +87,39 @@ impl Animation {
 		self.nodes.insert(index, node);
 	}
 
+	/// Inserts a new node at the given time of the animation.
+	/// 
+	/// Will not affect the duration of the animation unless the given time is greater than the duration of the animation.
+	/// That will cause the animation to be extended to the given time.
+	/// 
+	/// Will do nothing if the given time is less than or equal to 0.
+	pub fn insert_at_time(&mut self, time: Duration, value: f32, interpolation: Linker) {
+		if time <= Duration::ZERO {
+			return;
+		}
+
+		let mut current_time = Duration::ZERO;
+		for i in 0..self.nodes.len() {
+			let summary_time = current_time + self.nodes[i].time;
+			if summary_time > time {
+				self.nodes[i].time = time - current_time;
+				self.insert(i, AnimationNode {
+					time: summary_time - time,
+					value,
+					interpolation,
+				});
+				return;
+			}
+			current_time += self.nodes[i].time;
+		}
+		let time = current_time - time;
+		self.nodes.push(AnimationNode {
+			time,
+			value,
+			interpolation,
+		});
+	}
+
 	/// Removes the node at the given index of the animation.
 	pub fn remove(&mut self, index: usize) -> Option<AnimationNode> {
 		if self.nodes.get(index).is_some() {
@@ -94,6 +127,123 @@ impl Animation {
 		}else {
 			None
 		}
+	}
+
+	/// Removes the node at the given index of the animation and keeps the duration of the animation unchanged.
+	pub fn remove_hold(&mut self, index: usize) -> Option<AnimationNode> {
+		if index >= self.nodes.len() {
+			return None;
+		}
+
+		let time = self.nodes.iter().take(index + 1).map(|node| node.time).sum();
+
+		self.remove_at_time(time)
+	}
+
+	/// Removes the node at the given time of the animation.
+	/// 
+	/// Will not affect the duration of the animation unless the given time is exact the same as the duration of the animation.
+	/// That will cause the remove of the last node of the animation.
+	/// 
+	/// Will do nothing if the given time is not mathcing any node.
+	pub fn remove_at_time(&mut self, time: Duration) -> Option<AnimationNode> {
+		if self.nodes.is_empty() {
+			return None;
+		}
+
+		if time <= Duration::ZERO {
+			return None;
+		}
+
+		let mut current_time = Duration::ZERO;
+		for i in 0..self.nodes.len() {
+			let summary_time = current_time + self.nodes[i].time;
+			if summary_time == time {
+				if i > 0 {
+					let time = self.nodes[i].time;
+					self.nodes[i - 1].time += time;
+				}
+
+				return Some(self.nodes.remove(i));
+			}
+			current_time += self.nodes[i].time;
+		}
+
+		None
+	}
+
+	/// changes the sustain time of the node at the given index of the animation.
+	/// 
+	/// Will not affect the duration of the animation unless the given node is the last node.
+	/// 
+	/// Will do nothing if the given index is out of range.
+	pub fn change_by_time_hold(&mut self, index: usize, time: Duration) {
+		if index >= self.nodes.len() {
+			return;
+		}
+
+		let to_set = self.nodes[index].time + time;
+
+		self.change_to_time_hold(index, to_set);
+	}
+
+	/// changes the sustain time of the node at the given index of the animation.
+	/// 
+	/// Will affect the duration of the animation.
+	/// 
+	/// Will do nothing if the given index is out of range.
+	pub fn change_by_time_unhold(&mut self, index: usize, time: Duration) {
+		if index >= self.nodes.len() {
+			return;
+		}
+
+		let to_set = self.nodes[index].time + time;
+
+		self.change_to_time_unhold(index, to_set);
+	}
+
+	/// changes the sustain time of the node at the given index of the animation.
+	/// 
+	/// Will not affect the duration of the animation unless the given node is the last node.
+	/// 
+	/// Will do nothing if the given index is out of range.
+	pub fn change_to_time_hold(&mut self, index: usize, time: Duration) {
+		if index >= self.nodes.len() {
+			return;
+		}
+
+		if time <= Duration::ZERO {
+			return;
+		}
+
+		
+		if index == self.nodes.len() - 1 {
+			self.nodes[index].time = time;
+		}else if time > self.nodes[index].time + self.nodes[index + 1].time {
+			self.nodes[index].time = self.nodes[index].time + self.nodes[index + 1].time;
+			self.nodes[index + 1].time = Duration::ZERO;
+		}else {
+			let delta = self.nodes[index].time - time;
+			self.nodes[index].time = time;
+			self.nodes[index + 1].time += delta;
+		}
+	}
+
+	/// changes the sustain time of the node at the given index of the animation.
+	/// 
+	/// Will affect the duration of the animation.
+	/// 
+	/// Will do nothing if the given index is out of range.
+	pub fn change_to_time_unhold(&mut self, index: usize, time: Duration) {
+		if index >= self.nodes.len() {
+			return;
+		}
+
+		if time <= Duration::ZERO {
+			return;
+		}
+
+		self.nodes[index].time = time;
 	}
 
 	/// Get the absolute time of each node of the animation.
@@ -198,6 +348,48 @@ impl Animation {
 		}
 
 		out_value
+	}
+
+	/// apply clamp to each node of the animation.
+	pub fn clamp(&mut self, min: f32, max: f32){
+		self.start_value = self.start_value.clamp(min, max);
+		for node in &mut self.nodes {
+			node.value = node.value.clamp(min, max);
+		}
+	}
+
+	/// apply min to each node of the animation.
+	pub fn min(&mut self, min: f32){
+		self.start_value = self.start_value.min(min);
+		for node in &mut self.nodes {
+			node.value = node.value.min(min);
+		}
+	}
+
+	/// apply max to each node of the animation.
+	pub fn max(&mut self, max: f32){
+		self.start_value = self.start_value.max(max);
+		for node in &mut self.nodes {
+			node.value = node.value.max(max);
+		}
+	}
+
+	/// Get the minimum value of the animation.
+	pub fn min_value(&self) -> f32 {
+		self.nodes
+			.iter()
+			.map(|node| node.value)
+			.min_by(|a, b| a.partial_cmp(b).unwrap())
+			.unwrap_or(self.start_value).min(self.start_value)
+	}
+
+	/// Get the maximum value of the animation.
+	pub fn max_value(&self) -> f32 {
+		self.nodes
+			.iter()
+			.map(|node| node.value)
+			.max_by(|a, b| a.partial_cmp(b).unwrap())
+			.unwrap_or(self.start_value).max(self.start_value)
 	}
 }
 

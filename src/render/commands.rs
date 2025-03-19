@@ -1,5 +1,7 @@
 //! Here is the implementation of the DrawCommand struct.
 
+use std::hash::Hash;
+
 /// The DrawCommand used by gpu to render the graphics.
 /// 
 /// Here is compiled version of the struct.
@@ -43,6 +45,35 @@ pub struct DrawCommandGpu {
 	pub lhs: u32,
 	pub(crate) __padding: [u8; 4],
 }
+
+impl Hash for DrawCommandGpu {
+	fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+		self.command.hash(state);
+		self.stroke_width.to_bits().hash(state);
+		self.parameter.to_bits().hash(state);
+		self.smooth_function.hash(state);
+		self.operation.hash(state);
+		self.smooth_parameter.to_bits().hash(state);
+		self.lhs.hash(state);
+		for slot in self.slots.iter() {
+			for value in slot.iter() {
+				value.to_bits().hash(state);
+			}
+		}
+		// self.slots.hash(state);
+	}
+}
+
+// impl PartialEq for DrawCommandGpu {
+// 	fn eq(&self, other: &Self) -> bool {
+// 		// let hasher = DefaultHasher::new();
+// 		let mut hash1 = Xxh3::new();
+// 		let mut hash2 = Xxh3::new();
+// 		self.hash(&mut hash1);
+// 		other.hash(&mut hash2);
+// 		hash1.finish() == hash2.finish()
+// 	}
+// }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[derive(serde::Deserialize, serde::Serialize)]

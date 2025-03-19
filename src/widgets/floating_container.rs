@@ -3,8 +3,9 @@
 use std::{cell::RefCell, collections::HashMap};
 
 use indexmap::IndexMap;
+use time::Duration;
 
-use crate::{layout::{Layout, LayoutId}, prelude::{InputState, Painter, Rect, Vec2}, App};
+use crate::{layout::{Layout, LayoutId}, prelude::{Animatedf32, Animation, AnimationNode, InputState, Linker, Painter, Rect, Vec2}, App};
 
 use super::{Signal, SignalGenerator, Widget};
 
@@ -23,6 +24,7 @@ pub struct FloatingContainer<S: Signal, A: App<Signal = S>> {
 	parent_area: RefCell<Rect>,
 	widget_pos: RefCell<Vec2>,
 	parent_pos: RefCell<Vec2>,
+	show_factor: Animatedf32,
 }
 
 /// The inner properties of the floating container.
@@ -92,6 +94,13 @@ impl Default for FloatingContainerInner {
 
 impl<S: Signal, A: App<Signal = S>> Default for FloatingContainer<S, A> {
 	fn default() -> Self {
+		let mut animation = Animation::default();
+		animation.push(AnimationNode {
+			time: Duration::milliseconds(100),
+			value: 1.0,
+			interpolation: Linker::Bezier(Vec2::new(0.5, 0.0), Vec2::new(0.5, 1.0)),
+		});
+
 		Self {
 			inner: FloatingContainerInner::default(),
 			signals: SignalGenerator::default(),
@@ -101,6 +110,7 @@ impl<S: Signal, A: App<Signal = S>> Default for FloatingContainer<S, A> {
 			parent_area: RefCell::new(Rect::ZERO),
 			widget_pos: RefCell::new(Vec2::ZERO),
 			parent_pos: RefCell::new(Vec2::ZERO),
+			show_factor: Animatedf32::new(animation, 0.0)
 		}
 	}
 }
@@ -260,6 +270,16 @@ impl<S: Signal, A: App<Signal = S>> Widget for FloatingContainer<S, A> {
 	fn draw(&mut self, _: &mut Painter, _: Vec2) {}
 
 	fn handle_event(&mut self, app: &mut A, input_state: &mut InputState<Self::Signal>, id: LayoutId, _: Rect, _: Vec2) -> bool {
+		if self.inner.show {
+			self.show_factor.set(1.0);
+		}else {
+			self.show_factor.set(0.0);
+		}
+
+		if self.show_factor.is_animating() {
+			input_state.mark_all_dirty();
+		}
+
 		if !self.inner.show {
 			return false;
 		}
@@ -367,7 +387,11 @@ impl<S: Signal, A: App<Signal = S>> Widget for FloatingContainer<S, A> {
 		}
 	}
 
-	fn continuous_event_handling(&self) -> bool {
-		self.inner.show
+	fn event_handle_strategy(&self) -> super::EventHandleStrategy {
+		if self.inner.show {
+			super::EventHandleStrategy::AlwaysPrimary
+		}else {
+			super::EventHandleStrategy::OnHover
+		}
 	}
 }

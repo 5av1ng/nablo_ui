@@ -2,7 +2,7 @@
 
 use crate::{layout::{Layout, LayoutId}, prelude::{InputState, Painter, Rect, Vec2}, App};
 
-use super::{Signal, SignalGenerator, Widget};
+use super::{EventHandleStrategy, Signal, SignalGenerator, Widget};
 
 /// A canvas widget for displaying images and graphics.
 pub struct Canvas<S: Signal, A: App<Signal = S>> {
@@ -20,8 +20,8 @@ pub struct CanvasInner {
 	pub draw: Box<dyn Fn(&mut Painter)>,
 	/// if the canvas should be refreshed every frame.
 	pub refresh: bool,
-	/// if the canvas should be refreshed every frame.
-	pub continuous_event_handling: bool,
+	/// The event handling strategy of the canvas.
+	pub event_handle_strategy: EventHandleStrategy,
 }
 
 impl<S: Signal, A: App<Signal = S>> Canvas<S, A> {
@@ -32,7 +32,7 @@ impl<S: Signal, A: App<Signal = S>> Canvas<S, A> {
 				size,
 				draw: Box::new(draw),
 				refresh,
-				continuous_event_handling: false,
+				event_handle_strategy: EventHandleStrategy::OnHover,
 			},
 			signals: SignalGenerator::default(),
 		}
@@ -64,7 +64,7 @@ impl<S: Signal, A: App<Signal = S>> Widget for Canvas<S, A> {
 		self.inner.size
 	}
 
-	fn continuous_event_handling(&self) -> bool {
-		self.inner.continuous_event_handling
+	fn event_handle_strategy(&self) -> EventHandleStrategy {
+		self.inner.event_handle_strategy
 	}
 }

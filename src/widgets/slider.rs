@@ -391,7 +391,11 @@ impl<S: Signal, A: App<Signal = S>> Widget for Slider<S, A> {
 		self.pressed_factor.is_animating() || self.hover_factor.is_animating() || changed
 	}
 
-	fn continuous_event_handling(&self) -> bool {
-		false
+	fn event_handle_strategy(&self) -> super::EventHandleStrategy {
+		if self.signals.is_dragging() {
+			super::EventHandleStrategy::AlwaysSecondary
+		}else {
+			super::EventHandleStrategy::OnHover
+		}
 	}
 }

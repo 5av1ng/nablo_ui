@@ -74,7 +74,7 @@ where
 		self.get_widget().inner_padding()
 	}
 
-	fn continuous_event_handling(&self) -> bool {
-		self.get_widget().continuous_event_handling()
+	fn event_handle_strategy(&self) -> super::EventHandleStrategy {
+		self.get_widget().event_handle_strategy()
 	}
 } 

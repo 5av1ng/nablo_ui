@@ -30,6 +30,17 @@ use crate::{layout::{Layout, LayoutId}, math::{rect::Rect, vec2::Vec2}, render::
 
 pub const DOUBLE_CLICK_THRESHOLD: Duration = Duration::milliseconds(250);
 
+/// Determing when we should call [`Widget::handle_event()`] on the widget.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum EventHandleStrategy {
+	/// Call [`Widget::handle_event()`] every frame before processed OnHover stage.
+	AlwaysPrimary = 0,
+	/// Call [`Widget::handle_event()`] every frame after processed OnHover stage.
+	AlwaysSecondary = 1,
+	/// Call [`Widget::handle_event()`] only when the widget is hovered.
+	#[default] OnHover = 2,
+}
+
 /// The main trait for all widgets.
 /// 
 /// You can implement this trait for your own widgets.
@@ -69,10 +80,12 @@ pub trait Widget: Any {
 	/// Get the size of the widget.
 	fn size(&self, id: LayoutId, painter: &Painter, layout: &Layout<Self::Signal, Self::Application>) -> Vec2;
 
-	/// Set whether the widget should handle event next frame.
+	/// Set the event handle strategy of the widget.
 	/// 
-	/// If false, the widget will only handle event when any touch is inside the widget.
-	fn continuous_event_handling(&self) -> bool;
+	/// The default strategy is [`EventHandleStrategy::OnHover`]
+	fn event_handle_strategy(&self) -> EventHandleStrategy {
+		EventHandleStrategy::OnHover
+	}
 
 	/// Handle child layout, if any.
 	/// 
@@ -92,7 +105,12 @@ pub trait Widget: Any {
 	/// If you returned `None`, the child will be removed from the layout.
 	/// 
 	/// Note: You needn't to return all the childs, only the childs that you want to handle.
-	fn handle_child_layout(&mut self, childs: IndexMap<LayoutId, Vec2>, area: Rect, id: LayoutId) -> HashMap<LayoutId, Option<Rect>> {
+	fn handle_child_layout(
+		&mut self, 
+		childs: IndexMap<LayoutId, Vec2>, 
+		area: Rect, 
+		id: LayoutId,
+	) -> HashMap<LayoutId, Option<Rect>> {
 		let _ = (childs, area, id);
 		HashMap::new()
 	}
@@ -167,6 +185,13 @@ pub struct SignalGenerator<S: Signal, T, A: App<Signal = S>> {
 	last_click_time: Option<Duration>,
 	dragging_by: Option<u64>,
 	is_hovering: bool,
+}
+
+impl<S: Signal, T, A: App<Signal = S>> SignalGenerator<S, T, A> {
+	/// check if the widget is dragging.
+	pub fn is_dragging(&self) -> bool {
+		self.dragging_by.is_some()
+	}
 }
 
 /// Result of the signal generation.

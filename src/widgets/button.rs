@@ -304,8 +304,4 @@ impl<S: Signal, A: App<Signal = S>> Widget for Button<S, A> {
 
 		self.hover_factor.is_animating() || self.pressed_factor.is_animating() || self.clicked_factor.is_animating()
 	}
-
-	fn continuous_event_handling(&self) -> bool {
-		false
-	}
 }

@@ -2,6 +2,8 @@
 
 use std::{fmt::Display, iter::Sum, ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign}};
 
+use rstar::Point;
+
 /// A simple 2D vector implementation
 #[derive(Debug, Copy, Clone, PartialEq, Default)]
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -491,5 +493,34 @@ where
 impl From<&Vec2> for Vec2 {
 	fn from(v: &Vec2) -> Self {
 		*v
+	}
+}
+
+impl Point for Vec2 {
+	type Scalar = f32;
+
+	const DIMENSIONS: usize = 2;
+
+	fn generate(mut generator: impl FnMut(usize) -> Self::Scalar) -> Self {
+		Self {
+			x: generator(0),
+			y: generator(1),
+		}
+	}
+
+	fn nth(&self, index: usize) -> Self::Scalar {
+		match index {
+			0 => self.x,
+			1 => self.y,
+			_ => panic!("Index out of range"),
+		}
+	}
+
+	fn nth_mut(&mut self, index: usize) -> &mut Self::Scalar {
+		match index {
+			0 => &mut self.x,
+			1 => &mut self.y,
+			_ => panic!("Index out of range"),
+		}
 	}
 }

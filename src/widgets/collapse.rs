@@ -206,8 +206,4 @@ impl<S: Signal, A: App<Signal = S>> Widget for Collapse<S, A> {
 	fn inner_padding(&self) -> Vec2 {
 		Vec2::same(self.inner.padding)
 	}
-
-	fn continuous_event_handling(&self) -> bool {
-		false
-	}
 }

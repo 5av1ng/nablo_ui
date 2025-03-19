@@ -10,12 +10,12 @@ webgl = ["wgpu/webgl"]
 [dependencies]
 wgpu = "24.0.1"
 winit = "0.30.9"
-time = { version = "0.3.37", features = ["serde"] }
-bytemuck = "1.21.0"
+time = { version = "0.3.39", features = ["serde"] }
+bytemuck = "1.22.0"
 cfg-if = "1"
 pollster = "0.4.0"
 indexmap = "2.7.1"
-thiserror = "2.0.11"
+thiserror = "2.0.12"
 msdf = { path = "./msdf_nablo/msdf" }
 owned_ttf_parser = "0.25.0"
 image = "0.25.5"
@@ -24,4 +24,7 @@ lyon_geom = "1.0.6"
 serde = { version = "1.0.218", features = ["derive"] }
 arboard = "3.4.1"
 rayon = "1.10.0"
+rstar = "0.12.2"
+# xxhash-rust = { version = "0.8.15", features = ["xxh3"] }
+# similar = "2.7.0"
 # utf8_slice = "1.0.0"

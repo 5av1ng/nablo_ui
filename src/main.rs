@@ -1,4 +1,6 @@
-use nablo_ui::{prelude::*, widgets::inputbox::{InputBox, SimpleValidator}};
+use std::f32::consts::PI;
+
+use nablo_ui::prelude::*;
 use time::Duration;
 
 #[derive(Debug, Clone, Default)]
@@ -108,6 +110,7 @@ impl App for TestApp {
 			Divider::new(false),
 			Radio::new_radio("打开浮动容器").on_click(|_, _| Sig::OpenFLoatContainer),
 			["painter", Canvas::new(Vec2::same(256.0), |_| {}, true)],
+			["painter_projective", Canvas::new(Vec2::same(256.0), |_| {}, true)],
 			["progress_bar", ProgressBar::new().set_length(256.0)],
 			["fps", Label::new("fps: 0.00")],
 		});
@@ -157,15 +160,53 @@ impl App for TestApp {
 						192.0
 					)
 				);
-				
+
 				painter.draw_shape(
 					(Shape::from(BasicShapeData::Circle(Vec2::same(256.0) * t2, 32.0)))
 					.lerp(Shape::from(BasicShapeData::Rectangle(Vec2::ZERO, Vec2::same(256.0), Vec4::same(96.0) * t4)), t)
 				);
 
-				// painter.set_fill_mode(PRIMARY_TEXT_COLOR);
-
 				// painter.draw_text(Vec2::new(0.0, 128.0), 0, 16.0, "这个颜色还挺不错");
+			}, true)
+		});
+
+		ctx.layout.widget_mut_by_alias::<Canvas<_, _>>("painter_projective", |_| {
+			Canvas::new(Vec2::same(256.0), move |painter| {
+				painter.set_fill_mode(
+					FillMode::LinearGradient(
+						ERROR_COLOR, 
+						WARNING_COLOR, 
+						Vec2::ZERO, 
+						Vec2::same(256.0)
+					)
+				);
+				
+				painter.draw_rect(Rect::from_size(Vec2::same(256.0)), Vec4::same(16.0));
+
+				painter.set_fill_mode(
+					FillMode::RadialGradient(
+						PRIMARY_COLOR, 
+						SUCCESS_COLOR, 
+						Vec2::same(128.0), 
+						192.0
+					)
+				);
+
+				let relative_to = painter.releative_to();
+				let t = t * PI;
+
+				painter.set_transform(
+					Transform2D::translate(relative_to + Vec2::same(128.0) + Vec2::from_polar(64.0, t)) >>
+					Transform2D::row_projective([
+						t.cos(), -t.sin(), 0.0,
+						t.sin(), t.cos(), 0.0,
+						(0.80 * t / PI).powi(9), (0.80 * t / PI).powi(9), 1.0,
+					]) >> 
+					Transform2D::translate(- relative_to - Vec2::same(128.0) - Vec2::from_polar(64.0, t))
+				);
+
+				painter.draw_circle(Vec2::same(128.0), 64.0);
+
 			}, true)
 		});
 	}
@@ -197,6 +238,7 @@ impl App for TestApp {
 fn main() {
 	Manager::new(TestApp::default(), include_bytes!("../Maple.ttf").to_vec(), 0)
 		.title("Test")
-		.draw_frame_rate(60.0)
+		// .quality_factor(0.8)
+		// .draw_frame_rate(60.0)
 		.run();
 }

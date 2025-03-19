@@ -36,6 +36,7 @@ pub struct Context<S: Signal, A: App<Signal = S>> {
 	available_texture_ids: IndexSet<TextureId>,
 	input_state: InputState<S>,
 	exit: bool,
+	// pub(crate) painter_context: PainterCtx,
 	// padding: Vec2,
 }
 
@@ -54,6 +55,7 @@ impl<S: Signal, A: App<Signal = S>> Context<S, A> {
 			exit: false,
 			// padding: Vec2::same(EM),
 			fonts: Arc::new(Mutex::new(font_pool)),
+			// painter_context: PainterCtx::default(),
 		}
 	}
 

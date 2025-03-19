@@ -123,8 +123,6 @@ fn rectangle(pos: vec2<f32>, left_top: vec2<f32>, right_bottom: vec2<f32>, round
 		let d = abs(moved_pos) - size / 2.0 + vec2(r, r);
 		return length(max(d, vec2(0.0, 0.0))) - r;
 	}
-
-	
 }
 
 fn half_plane(pos: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>) -> f32 {
@@ -439,6 +437,24 @@ fn mix_color(ori_color: vec4<f32>, new_color: vec4<f32>, blend_mode: u32) -> vec
 	}
 }
 
+// fn requires_grad_correction(transform: mat3x3f) -> bool {
+// 	if transform[0].z != 0.0 || transform[1].z != 0.0 {
+// 		return true;
+// 	}
+	
+// 	let col0 = transform[0].xy;
+// 	let col1 = transform[1].xy;
+
+// 	let scale_x = length(col0);
+// 	let scale_y = length(col1);
+
+// 	let is_isotropic = 
+// 		abs(scale_x - scale_y) < EPSILON &&
+// 		abs(dot(col0, col1)) < EPSILON * scale_x * scale_y;
+	
+// 	return !is_isotropic;
+// }
+
 @fragment
 fn fs_main(@builtin(position) clip_pos: vec4<f32>) -> @location(0) vec4f {
 	let pos = clip_pos.xy / uniforms.scale_factor;
@@ -466,12 +482,18 @@ fn fs_main(@builtin(position) clip_pos: vec4<f32>) -> @location(0) vec4f {
 
 
 		var temp = 0.0;
-		var grad = vec2f(0.0, 0.0);
-		let transformed = (inverse(current_transform) * vec3f(pos, 1.0)); 
+		// var grad = vec2f(0.0, 0.0);
+		let transformed = (current_transform * vec3f(pos, 1.0)); 
 		var p = transformed.xy;
 		if transformed.z != 0.0 {
 			p /= transformed.z;
 		}
+		// let requires_grad_correction = requires_grad_correction(inverse(current_transform));
+
+		// if !requires_grad_correction {
+		// 	grad = vec2f(length(current_transform[0].xy), 0.0);
+		// }
+
 
 		// if (p.x <= draw_commands[current_command_index].clip_rect_lt_x || 
 		// 	p.x >= draw_commands[current_command_index].clip_rect_rb_x ||
@@ -483,10 +505,10 @@ fn fs_main(@builtin(position) clip_pos: vec4<f32>) -> @location(0) vec4f {
 		// 	continue;
 		// }
 		
-		let p_plus_x = (inverse(current_transform) * vec3f(pos + vec2f(EPSILON, 0.0), 1.0)).xy;
-		let p_plus_y = (inverse(current_transform) * vec3f(pos + vec2f(0.0, EPSILON), 1.0)).xy;
-		let p_minus_x = (inverse(current_transform) * vec3f(pos - vec2f(EPSILON, 0.0), 1.0)).xy;
-		let p_minus_y = (inverse(current_transform) * vec3f(pos - vec2f(0.0, EPSILON), 1.0)).xy;
+		// let p_plus_x = (current_transform * vec3f(pos + vec2f(EPSILON, 0.0), 1.0)).xy;
+		// let p_plus_y = (current_transform * vec3f(pos + vec2f(0.0, EPSILON), 1.0)).xy;
+		// let p_minus_x = (current_transform * vec3f(pos - vec2f(EPSILON, 0.0), 1.0)).xy;
+		// let p_minus_y = (current_transform * vec3f(pos - vec2f(0.0, EPSILON), 1.0)).xy;
 		let slots = transpose(draw_commands[current_command_index].slots);
 
 		switch draw_commands[current_command_index].command {
@@ -501,9 +523,11 @@ fn fs_main(@builtin(position) clip_pos: vec4<f32>) -> @location(0) vec4f {
 				);
 				let radius = slots[2][0];
 				temp = circle(p, center, radius);
-				grad.x = (circle(p_plus_x, center, radius) - circle(p_minus_x, center, radius)) / (EPSILON * 2.0);
-				grad.y = (circle(p_plus_y, center, radius) - circle(p_minus_y, center, radius)) / (EPSILON * 2.0);
-				grad /= length(grad);
+				// if requires_grad_correction {
+				// 	grad.x = (circle(p_plus_x, center, radius) - circle(p_minus_x, center, radius)) / (EPSILON * 2.0);
+				// 	grad.y = (circle(p_plus_y, center, radius) - circle(p_minus_y, center, radius)) / (EPSILON * 2.0);
+				// 	// grad /= length(grad);
+				// }
 			}
 			case DrawTriangle: {
 				let p1 = vec2f(
@@ -519,8 +543,10 @@ fn fs_main(@builtin(position) clip_pos: vec4<f32>) -> @location(0) vec4f {
 					slots[1][1],
 				);
 				temp = triangle(p, p1, p2, p3);
-				grad.x = (triangle(p_plus_x, p1, p2, p3) - triangle(p_minus_x, p1, p2, p3)) / (EPSILON * 2.0);
-				grad.y = (triangle(p_plus_y, p1, p2, p3) - triangle(p_minus_y, p1, p2, p3)) / (EPSILON * 2.0);
+				// if requires_grad_correction {
+				// 	grad.x = (triangle(p_plus_x, p1, p2, p3) - triangle(p_minus_x, p1, p2, p3)) / (EPSILON * 2.0);
+				// 	grad.y = (triangle(p_plus_y, p1, p2, p3) - triangle(p_minus_y, p1, p2, p3)) / (EPSILON * 2.0);
+				// }
 			}
 			case DrawRectangle: {
 				let lt = vec2f(
@@ -538,8 +564,10 @@ fn fs_main(@builtin(position) clip_pos: vec4<f32>) -> @location(0) vec4f {
 					slots[3][1],
 				);
 				temp = rectangle(p, lt, rb, roundings);
-				grad.x = (rectangle(p_plus_x, lt, rb, roundings) - rectangle(p_minus_x, lt, rb, roundings)) / (EPSILON * 2.0);
-				grad.y = (rectangle(p_plus_y, lt, rb, roundings) - rectangle(p_minus_y, lt, rb, roundings)) / (EPSILON * 2.0);
+				// if requires_grad_correction {
+				// 	grad.x = (rectangle(p_plus_x, lt, rb, roundings) - rectangle(p_minus_x, lt, rb, roundings)) / (EPSILON * 2.0);
+				// 	grad.y = (rectangle(p_plus_y, lt, rb, roundings) - rectangle(p_minus_y, lt, rb, roundings)) / (EPSILON * 2.0);
+				// }
 			}
 			case DrawHalfPlane: {
 				let start = vec2f(
@@ -551,8 +579,10 @@ fn fs_main(@builtin(position) clip_pos: vec4<f32>) -> @location(0) vec4f {
 					slots[3][0],
 				);
 				temp = half_plane(p, start, end);
-				grad.x = (half_plane(p_plus_x, start, end) - half_plane(p_minus_x, start, end)) / (EPSILON * 2.0);
-				grad.y = (half_plane(p_plus_y, start, end) - half_plane(p_minus_y, start, end)) / (EPSILON * 2.0);
+				// if requires_grad_correction {
+				// 	grad.x = (half_plane(p_plus_x, start, end) - half_plane(p_minus_x, start, end)) / (EPSILON * 2.0);
+				// 	grad.y = (half_plane(p_plus_y, start, end) - half_plane(p_minus_y, start, end)) / (EPSILON * 2.0);
+				// }
 			}
 			case DrawQuadPlane: {
 				let start = vec2f(
@@ -568,8 +598,10 @@ fn fs_main(@builtin(position) clip_pos: vec4<f32>) -> @location(0) vec4f {
 					slots[1][1],
 				);
 				temp = quad_half_plane(p, start, ctrl, end);
-				grad.x = (quad_half_plane(p_plus_x, start, ctrl, end) - quad_half_plane(p_minus_x, start, ctrl, end)) / (EPSILON * 2.0);
-				grad.y = (quad_half_plane(p_plus_y, start, ctrl, end) - quad_half_plane(p_minus_y, start, ctrl, end)) / (EPSILON * 2.0);
+				// if requires_grad_correction {
+				// 	grad.x = (quad_half_plane(p_plus_x, start, ctrl, end) - quad_half_plane(p_minus_x, start, ctrl, end)) / (EPSILON * 2.0);
+				// 	grad.y = (quad_half_plane(p_plus_y, start, ctrl, end) - quad_half_plane(p_minus_y, start, ctrl, end)) / (EPSILON * 2.0);
+				// }
 			}
 			case DrawSDFTexture: {
 				let lt = vec2f(
@@ -582,8 +614,10 @@ fn fs_main(@builtin(position) clip_pos: vec4<f32>) -> @location(0) vec4f {
 				);
 				let texture_id = u32(slots[0][1]);
 				temp = sdf_texture(p, texture_id, lt, rb);
-				grad.x = (sdf_texture(p_plus_x, texture_id, lt, rb) - sdf_texture(p_minus_x, texture_id, lt, rb)) / (EPSILON * 2.0);
-				grad.y = (sdf_texture(p_plus_y, texture_id, lt, rb) - sdf_texture(p_minus_y, texture_id, lt, rb)) / (EPSILON * 2.0);
+				// if requires_grad_correction {
+				// 	grad.x = (sdf_texture(p_plus_x, texture_id, lt, rb) - sdf_texture(p_minus_x, texture_id, lt, rb)) / (EPSILON * 2.0);
+				// 	grad.y = (sdf_texture(p_plus_y, texture_id, lt, rb) - sdf_texture(p_minus_y, texture_id, lt, rb)) / (EPSILON * 2.0);
+				// }
 			}
 			case DrawChar: {
 				let char_pos = vec2f(
@@ -593,8 +627,10 @@ fn fs_main(@builtin(position) clip_pos: vec4<f32>) -> @location(0) vec4f {
 				let char_size = slots[2][0];
 				let char_id = u32(slots[3][0]);
 				temp = msdf_char(p, char_pos, char_size, char_id);
-				grad.x = (msdf_char(p_plus_x, char_pos, char_size, char_id) - msdf_char(p_minus_x, char_pos, char_size, char_id)) / (EPSILON * 2.0);
-				grad.y = (msdf_char(p_plus_y, char_pos, char_size, char_id) - msdf_char(p_minus_y, char_pos, char_size, char_id)) / (EPSILON * 2.0);
+				// if requires_grad_correction {
+				// 	grad.x = (msdf_char(p_plus_x, char_pos, char_size, char_id) - msdf_char(p_minus_x, char_pos, char_size, char_id)) / (EPSILON * 2.0);
+				// 	grad.y = (msdf_char(p_plus_y, char_pos, char_size, char_id) - msdf_char(p_minus_y, char_pos, char_size, char_id)) / (EPSILON * 2.0);
+				// }
 			}
 			case Fill: {
 				if stack[1] < 0.0 {
@@ -697,6 +733,8 @@ fn fs_main(@builtin(position) clip_pos: vec4<f32>) -> @location(0) vec4f {
 				current_transform[0][2] = slots[2][1];
 				current_transform[1][2] = slots[3][1];
 				current_transform[2][2] = slots[0][2];
+
+				current_transform = inverse(current_transform);
 			}
 			case SetBlendMode: {
 				current_blend_mode = u32(slots[0][0]);
@@ -716,9 +754,9 @@ fn fs_main(@builtin(position) clip_pos: vec4<f32>) -> @location(0) vec4f {
 			temp = to_stroke(temp, draw_commands[current_command_index].stroke_width);
 		}
 
-		if length(grad) != 0.0 {
-			temp = temp / length(grad);
-		}
+		// if length(grad) != 0.0 {
+		// 	temp = temp / length(grad);
+		// }
 
 		if draw_commands[current_command_index].lhs >= 64u {
 			current_command_index += 1u;

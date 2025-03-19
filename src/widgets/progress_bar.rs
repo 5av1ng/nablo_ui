@@ -168,8 +168,4 @@ impl<S: Signal, A: App<Signal = S>> Widget for ProgressBar<S, A> {
 		painter.set_fill_mode(self.inner.foreground_color.clone());
 		painter.draw_rect(Rect::from_size(Vec2::new(size.x * progress, size.y)), self.inner.roundings);
 	}
-
-	fn continuous_event_handling(&self) -> bool {
-		false
-	}
 }

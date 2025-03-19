@@ -2,6 +2,8 @@
 
 use std::{fmt::Display, ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Neg, Sub}};
 
+use rstar::{Envelope, Point};
+
 use super::{prelude::Transform2D, vec2::Vec2};
 
 /// A simple rectangle class with logical operators and methods.
@@ -318,5 +320,119 @@ pub fn rect_ltrb(lt: impl Into<Vec2>, rb: impl Into<Vec2>) -> Rect {
 impl Display for Rect {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		write!(f, "({} - {})", self.lt(), self.rb())
+	}
+}
+
+// impl From<AABB<Vec2>> for Rect {
+// 	fn from(aabb: AABB<Vec2>) -> Self {
+// 		Rect::from_ltrb(aabb.lower(), aabb.upper())
+// 	}
+// }
+
+// impl From<Rect> for AABB<Vec2> {
+// 	fn from(rect: Rect) -> Self {
+// 		AABB::from_corners(rect.lt(), rect.rb())
+// 	}
+// }
+
+impl Envelope for Rect {
+	type Point = Vec2;
+
+	fn area(&self) -> <Self::Point as rstar::Point>::Scalar {
+		(self.w * self.h).max(0.0)
+	}	
+
+	fn center(&self) -> Self::Point {
+		Vec2::new(self.x + self.w / 2.0, self.y + self.h / 2.0)
+	}
+
+	fn contains_envelope(&self, other: &Self) -> bool {
+		self.contains(other.lt()) && self.contains(other.rb())
+	}
+
+	fn contains_point(&self, point: &Self::Point) -> bool {
+		self.contains(point)
+	}
+
+	fn distance_2(&self, point: &Self::Point) -> <Self::Point as rstar::Point>::Scalar {
+		if self.contains(point) {
+			return 0.0;
+		}
+		
+		let lt = self.lt();
+		let rb = self.rb();
+
+		(lt.max(rb.min(*point)) - *point).length_squared()
+	}
+
+	fn intersection_area(&self, other: &Self) -> <Self::Point as rstar::Point>::Scalar {
+		(*self & *other).area()
+	}
+
+	fn intersects(&self, other: &Self) -> bool {
+		(*self & *other).is_positive()
+	}
+
+	fn merge(&mut self, other: &Self) {
+		*self |= *other;
+	}
+
+	fn merged(&self, other: &Self) -> Self {
+		*self | *other
+	}
+
+	fn min_max_dist_2(&self, point: &Self::Point) -> <Self::Point as rstar::Point>::Scalar {
+		let lt = self.lt();
+		let rb = self.rb();
+
+		let x_contrib = if point.x < lt.x {
+			(rb.x - point.x).powi(2)
+		}else if point.x > rb.x {
+			(point.x - lt.x).powi(2)
+		}else {
+			(lt.x - rb.x).powi(2) / 4.0
+		};
+
+		let y_contrib = if point.y < lt.y {
+			(rb.y - point.y).powi(2)
+		}else if point.y > rb.y {
+			(point.y - lt.y).powi(2)
+		}else {
+			(lt.y - rb.y).powi(2) / 4.0
+		};
+
+		x_contrib + y_contrib
+	}
+
+	fn new_empty() -> Self {
+		Self::ZERO
+	}
+
+	fn partition_envelopes<T: rstar::RTreeObject<Envelope = Self>>(
+			axis: usize,
+			envelopes: &mut [T],
+			selection_size: usize,
+		) {
+		envelopes.select_nth_unstable_by(selection_size, |l, r| {
+            l.envelope()
+                .lt()
+                .nth(axis)
+                .partial_cmp(&r.envelope().lt().nth(axis))
+                .unwrap()
+        });
+	}
+
+	fn perimeter_value(&self) -> <Self::Point as rstar::Point>::Scalar {
+		(self.w + self.h) * 2.0
+	}
+
+	fn sort_envelopes<T: rstar::RTreeObject<Envelope = Self>>(axis: usize, envelopes: &mut [T]) {
+		envelopes.sort_unstable_by(|l, r| {
+            l.envelope()
+                .lt()
+                .nth(axis)
+                .partial_cmp(&r.envelope().lt().nth(axis))
+                .unwrap()
+        });
 	}
 }

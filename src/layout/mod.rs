@@ -1,14 +1,14 @@
 //! A tree-based layout for the Nablo UI.
 
 mod macros;
-mod quad_tree;
 
 use std::{any::Any, collections::{HashMap, HashSet, VecDeque}, fmt::Display, hash::Hash};
 
 use indexmap::{IndexMap, IndexSet};
+use rstar::{RTree, RTreeObject};
 // use quad_tree::QuadTree;
 
-use crate::{math::rect::Rect, prelude::Vec2, render::painter::Painter, widgets::{Signal, Widget}, window::input_state::InputState, App};
+use crate::{math::rect::Rect, prelude::Vec2, render::painter::Painter, widgets::{EventHandleStrategy, Signal, Widget}, window::input_state::InputState, App};
 
 /// A unique identifier for a layout element.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
@@ -19,6 +19,22 @@ impl Display for LayoutId {
 		write!(f, "LayoutId({})", self.0)
 	}
 }
+
+#[derive(PartialEq)]
+struct RstarBinding {
+	pub id: LayoutId,
+	pub rect: Rect,
+}
+
+impl RTreeObject for RstarBinding {
+	type Envelope = Rect;
+
+	fn envelope(&self) -> Self::Envelope {
+		self.rect
+	}
+}
+
+const REMOVE_CONTINOUS_HANLDING_THRESHOLD: usize = 5;
 
 /// The root element's id.
 pub const ROOT_LAYOUT_ID: LayoutId = LayoutId(0);
@@ -40,8 +56,9 @@ pub struct Layout<S: Signal, A: App<Signal = S>> {
 	/// the inversed alias map for the layout.
 	inversed_alias_map: HashMap<LayoutId, String>,
 
-	// quad_tree: QuadTree,
-	continous_widgets: HashSet<LayoutId>,
+	rtree: RTree<RstarBinding>,
+	primary_widgets: HashMap<LayoutId, usize>,
+	secondary_widgets: HashMap<LayoutId, usize>,
 }
 
 /// A layout element that holds a widget and its properties.
@@ -82,7 +99,9 @@ impl<S: Signal, A: App<Signal = S>> Layout<S, A> {
 			alias_map: HashMap::new(),
 			inversed_alias_map: HashMap::new(),
 			// quad_tree: QuadTree::new(Rect::ZERO),
-			continous_widgets: HashSet::new(),
+			rtree: RTree::new(),
+			primary_widgets: HashMap::new(),
+			secondary_widgets: HashMap::new(),
 		}
 	}
 
@@ -92,6 +111,16 @@ impl<S: Signal, A: App<Signal = S>> Layout<S, A> {
 	/// There will be only one root widget in the layout. 
 	/// If there is already a root widget, the new widget will be switched to the root widget and true will be returned.
 	pub fn insert_root_widget(&mut self, widget: impl Widget<Signal = S, Application = A>) -> bool {
+		match widget.event_handle_strategy() {
+			EventHandleStrategy::AlwaysPrimary => {
+				self.primary_widgets.insert(ROOT_LAYOUT_ID, 0);
+			},
+			EventHandleStrategy::AlwaysSecondary => {
+				self.secondary_widgets.insert(ROOT_LAYOUT_ID, 0);
+			},
+			_ => {},
+		}
+
 		if let Some(root) = self.widgets.get_mut(&ROOT_LAYOUT_ID) {
 			root.widget = Box::new(widget);
 			root.redraw_request = true;
@@ -120,8 +149,14 @@ impl<S: Signal, A: App<Signal = S>> Layout<S, A> {
 	pub fn add_widget(&mut self, parent_id: LayoutId, widget: impl Widget<Signal = S, Application = A>) -> Option<LayoutId> {
 		if self.widgets.contains_key(&parent_id) {
 			let id = LayoutId(self.next_id);
-			if widget.continuous_event_handling() {
-				self.continous_widgets.insert(id);
+			match widget.event_handle_strategy() {
+				EventHandleStrategy::AlwaysPrimary => {
+					self.primary_widgets.insert(id, 0);
+				},
+				EventHandleStrategy::AlwaysSecondary => {
+					self.secondary_widgets.insert(id, 0);
+				},
+				_ => {},
 			}
 			self.next_id += 1;
 			self.widgets.insert(
@@ -140,6 +175,17 @@ impl<S: Signal, A: App<Signal = S>> Layout<S, A> {
 		}else {
 			None
 		}
+	}
+
+	/// Add a new widget to the layout by alias.
+	/// 
+	/// Returns the id of the new widget.
+	/// 
+	/// If the parent_id is not in the layout, the widget will not be added and None will be returned.
+	pub fn add_widget_by_alias(&mut self, parent_alias: impl Into<String>, widget: impl Widget<Signal = S, Application = A>) -> Option<LayoutId> {
+		let alias = parent_alias.into();
+		let id = self.alias_map.get(&alias)?;
+		self.add_widget(*id, widget)
 	}
 
 	/// Alias a widget by its id.
@@ -223,8 +269,14 @@ impl<S: Signal, A: App<Signal = S>> Layout<S, A> {
 		let out = self.remove_widget_children(id);
 
 		if self.widgets.contains_key(&parent_id) {
-			if widget.continuous_event_handling() {
-				self.continous_widgets.insert(id);
+			match widget.event_handle_strategy() {
+				EventHandleStrategy::AlwaysPrimary => {
+					self.primary_widgets.insert(id, 0);
+				},
+				EventHandleStrategy::AlwaysSecondary => {
+					self.secondary_widgets.insert(id, 0);
+				},
+				_ => {},
 			}
 			self.widgets.insert(
 				id,
@@ -416,6 +468,21 @@ impl<S: Signal, A: App<Signal = S>> Layout<S, A> {
 		out
 	}
 
+	/// Get the layer of a widget.
+	pub fn widget_layer(&self, id: LayoutId) -> Option<usize> {
+		let mut layer_count = 0;
+		self.widget_layer_inner(id, &mut layer_count).map(|_| layer_count)
+	}
+
+	fn widget_layer_inner(&self, id: LayoutId, layer_count: &mut usize) -> Option<()> {
+		let parent = *self.inverse_tree.get(&id)?;
+		*layer_count += 1;
+		if parent == ROOT_LAYOUT_ID {
+			return Some(());
+		}
+		self.widget_layer_inner(parent, layer_count)
+	}
+
 	fn layers_inner(&self, layers: HashSet<LayoutId>, layer_count: &mut usize) {
 		if layers.is_empty() {
 			return;
@@ -467,12 +534,6 @@ impl<S: Signal, A: App<Signal = S>> Layout<S, A> {
 		painter: &mut Painter,
 		widget_to_remove: &mut Vec<LayoutId>
 	) {
-		// if let Some(element) = self.widgets.get_mut(&layout_id) {
-		// 	if !element.redraw_request {
-		// 		return;
-		// 	}
-		// }
-
 		let children = if let Some(child) = self.tree.get(&layout_id) {
 			child.clone()
 		}else {
@@ -481,8 +542,8 @@ impl<S: Signal, A: App<Signal = S>> Layout<S, A> {
 
 		let mut children_set = children.iter().copied().collect::<IndexSet<_>>();
 
+		painter.set_relative_to(parent_pos);
 		let children_size_map = children.iter().filter_map(|child_id| {
-			painter.set_relative_to(parent_pos);
 			self.widgets.get(child_id).map(|child| (*child_id, child.widget.size(*child_id, painter, self)))
 		}).collect::<IndexMap<_, _>>();
 
@@ -505,7 +566,10 @@ impl<S: Signal, A: App<Signal = S>> Layout<S, A> {
 				if let Some(child) = self.widgets.get_mut(&child_id) {
 					let child_pos = parent_pos + child_window.lt();
 					let child_window = child_window.move_by(parent_pos) & parent_window;
-					// self.quad_tree.insert(child_id, child_window);
+					if let Some((original_child_window, _)) = &child.area_and_pos {
+						self.rtree.remove(&RstarBinding { id: child_id, rect: *original_child_window });
+					}
+					self.rtree.insert(RstarBinding { id: child_id, rect: child_window });
 					child.area_and_pos = Some((child_window, child_pos));
 					self.reanrrage_widgets(child_window, child_pos, child_id, painter, widget_to_remove);
 					children_set.swap_remove(&child_id);
@@ -536,38 +600,18 @@ impl<S: Signal, A: App<Signal = S>> Layout<S, A> {
 		self.alias_map.clear();
 	}
 
-	// #[cfg(debug_assertions)]
-	// fn check_overlap(&self, current_layer: Vec<LayoutId>) {
-	// 	let mut rects = vec!();
-	// 	let mut next_layer = vec!();
-	// 	for id in current_layer {
-	// 		if let Some(element) = self.widgets.get(&id) {
-	// 			if let Some((area, _)) = element.area_and_pos {
-	// 				rects.push((id, area));
-	// 			}
-	// 		}
-	// 		next_layer.extend(self.tree.get(&id).unwrap_or(&vec!()).iter().cloned());
-	// 	}
-
-	// 	for i in 0..rects.len() {
-	// 		for j in i+1..rects.len() {
-	// 			if !(rects[i].1 & rects[j].1).is_empty() {
-	// 				println!("[WARN] widget(id: {:?}) and widget(id: {:?}) overlap!", rects[i].0, rects[j].0);
-	// 			}
-	// 		}
-	// 	}
-
-	// 	if !next_layer.is_empty() {
-	// 		self.check_overlap(next_layer);
-	// 	}
-	// }
-
 	pub(crate) fn handle_draw(&mut self, painter: &mut Painter, window_size: Vec2) -> Option<Rect> {
 		let mut widget_to_remove = vec!();
 
 		self.sperate_dirty_widgets();
 		// self.quad_tree = QuadTree::new(Rect::from_size(window_size));
-		self.reanrrage_widgets(Rect::from_size(window_size), Vec2::ZERO, ROOT_LAYOUT_ID, painter, &mut widget_to_remove);
+		self.reanrrage_widgets(
+			Rect::from_size(window_size), 
+			Vec2::ZERO, 
+			ROOT_LAYOUT_ID, 
+			painter, 
+			&mut widget_to_remove
+		);
 		// #[cfg(debug_assertions)]
 		// self.check_overlap(vec![ROOT_LAYOUT_ID]);
 
@@ -609,6 +653,7 @@ impl<S: Signal, A: App<Signal = S>> Layout<S, A> {
 						continue;
 					}
 
+					// painter.push_drawing(id);
 					painter.set_clip_rect(area);
 					painter.set_relative_to(pos);
 					painter.reset_blend_mode();
@@ -633,81 +678,120 @@ impl<S: Signal, A: App<Signal = S>> Layout<S, A> {
 		refresh_area
 	}
 
-	// pub(crate) fn handle_continous_events(&mut self, state: &mut InputState<S>) {
-	// 	let widgets = std::mem::take(&mut self.continous_widgets);
+	pub(crate) fn handle_events(&mut self, state: &mut InputState<S>, app: &mut A) {
+		let primary_widgets = std::mem::take(&mut self.primary_widgets);
+		let secondary_widgets = std::mem::take(&mut self.secondary_widgets);
 
-	// 	for child_id in widgets {
-	// 		if let Some(element) = self.widgets.get_mut(&child_id) {
-	// 			if let Some((area, pos)) = element.area_and_pos {
-	// 				if area.is_positive() {
-	// 					element.redraw_request |= element.widget.handle_event(state, child_id, area, pos);
-	// 					if element.widget.continuous_event_handling() {
-	// 						self.continous_widgets.insert(child_id);
-	// 					}
-	// 				}
-	// 			}
-	// 		}
-	// 	}
-	// }
-
-	pub(crate) fn handle_events(&mut self, parent_id: LayoutId, state: &mut InputState<S>, app: &mut A) {
-		// if state.no_touch_available() {
-		// 	return;
-		// }
-
-		let children = self.tree.get(&parent_id).unwrap_or(&vec!()).clone();
-		
-		for child_id in children {
-			self.handle_events(child_id, state, app);
-		}
-
-		// self.continous_widgets.clear();
-
-		state.handling_id = parent_id;
-		if let Some(element) = self.widgets.get_mut(&parent_id) {
-			if let Some((area, pos)) = element.area_and_pos {
-				if area.is_positive() {
-					element.redraw_request |= element.widget.handle_event(app, state, parent_id, area, pos);
-					if element.widget.continuous_event_handling() {
-						self.continous_widgets.insert(element.id);
+		for (id, times) in &primary_widgets {
+			if let Some(element) = self.widgets.get_mut(id) {
+				if let Some((area, pos)) = element.area_and_pos {
+					if area.is_positive() {
+						element.redraw_request |= element.widget.handle_event(app, state, *id, area, pos);
+						match element.widget.event_handle_strategy() {
+							EventHandleStrategy::AlwaysPrimary => {
+								self.primary_widgets.insert(element.id, 0);
+							},
+							EventHandleStrategy::AlwaysSecondary => {
+								self.secondary_widgets.insert(element.id, 0);
+							},
+							_ if element.redraw_request => { 
+								self.secondary_widgets.insert(element.id, 0);
+							}
+							_ if *times < REMOVE_CONTINOUS_HANLDING_THRESHOLD => {
+								self.primary_widgets.insert(element.id, times + 1);
+							},
+							_ => {},
+						}
 					}
 				}
 			}
 		}
 
+		for touch_pos in state.touch_positions() {
+			let mut childs = self.rtree.locate_in_envelope_intersecting(
+				&Rect::from_center_size(touch_pos, Vec2::same(5.0))
+			).collect::<Vec<_>>();
 
-		// let widgets = std::mem::take(&mut self.continous_widgets);
+			childs.sort_by_key(|a| {
+				self.widget_layer(a.id).unwrap_or(0)
+			});
 
-		// for child_id in widgets {
-		// 	if let Some(element) = self.widgets.get_mut(&child_id) {
-		// 		if let Some((area, pos)) = element.area_and_pos {
-		// 			if area.is_positive() {
-		// 				element.redraw_request |= element.widget.handle_event(state, child_id, area, pos);
-		// 				if element.widget.continuous_event_handling() {
-		// 					self.continous_widgets.push(child_id);
-		// 				}
-		// 			}
-		// 		}
-		// 	}
-		// }
+			for child in childs {
+				if secondary_widgets.contains_key(&child.id) || primary_widgets.contains_key(&child.id) {
+					continue;
+				}
+				state.handling_id = child.id;
+				if let Some(element) = self.widgets.get_mut(&child.id) {
+					if let Some((area, pos)) = element.area_and_pos {
+						if area.is_positive() {
+							element.redraw_request |= element.widget.handle_event(app, state, child.id, area, pos);
+							match element.widget.event_handle_strategy() {
+								EventHandleStrategy::AlwaysPrimary => {
+									self.primary_widgets.insert(element.id, 0);
+								},
+								EventHandleStrategy::AlwaysSecondary => {
+									self.secondary_widgets.insert(element.id, 0);
+								},
+								_ if element.redraw_request => { 
+									self.secondary_widgets.insert(element.id, 0);
+								}
+								_ => {}
+							}
+						}
+					}
+				}
+			}
+		}
 
-		// let window = Rect::from_size(state.window_size);
-
-		// for pos in state.get_touch_on(window) {
-		// 	if let Some(id) = self.quad_tree.query_single(state.get_touch_pos(pos).unwrap_or(Vec2::INF)) {
-		// 		if let Some(element) = self.widgets.get_mut(&id) {
-		// 			if let Some((area, pos)) = element.area_and_pos {
-		// 				if area.is_positive() {
-		// 					element.redraw_request |= element.widget.handle_event(state, id, area, pos);
-		// 					if element.widget.continuous_event_handling() {
-		// 						self.continous_widgets.push(id);
-		// 					}
-		// 				}
-		// 			}
-		// 		}
-		// 	}
-		// }
+		for (id, times) in secondary_widgets {
+			if let Some(element) = self.widgets.get_mut(&id) {
+				if let Some((area, pos)) = element.area_and_pos {
+					if area.is_positive() {
+						element.redraw_request |= element.widget.handle_event(app, state, id, area, pos);
+						match element.widget.event_handle_strategy() {
+							EventHandleStrategy::AlwaysPrimary => {
+								self.primary_widgets.insert(element.id, 0);
+							},
+							EventHandleStrategy::AlwaysSecondary => {
+								self.secondary_widgets.insert(element.id, 0);
+							},
+							_ if element.redraw_request => { 
+								self.secondary_widgets.insert(element.id, 0);
+							},
+							_ if times < REMOVE_CONTINOUS_HANLDING_THRESHOLD => {
+								self.secondary_widgets.insert(element.id, times + 1);
+							},
+							_ => {}
+						}
+					}
+				}
+			}
+		}
+		
+		self.secondary_widgets.insert(ROOT_LAYOUT_ID, 0);
 	}
+
+	// fn __handle_events(&mut self, parent_id: LayoutId, state: &mut InputState<S>, app: &mut A) {
+	// 	let children = self.tree.get(&parent_id).unwrap_or(&vec!()).clone();
+		
+	// 	for child_id in children {
+	// 		self.handle_events(child_id, state, app);
+	// 	}
+
+	// 	self.continous_widgets.clear();
+
+	// 	state.handling_id = parent_id;
+	// 	if let Some(element) = self.widgets.get_mut(&parent_id) {
+	// 		if let Some((area, pos)) = element.area_and_pos {
+	// 			if area.is_positive() {
+	// 				element.redraw_request |= element.widget.handle_event(app, state, parent_id, area, pos);
+	// 				if element.widget.continuous_event_handling() {
+	// 					self.continous_widgets.insert(element.id);
+	// 				}
+	// 			}
+	// 		}
+	// 	}
+	// }
 
 	pub(crate) fn any_widget_dirty(&self) -> bool {
 		self.widgets.values().any(|x| x.redraw_request)

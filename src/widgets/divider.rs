@@ -138,8 +138,4 @@ impl<S: Signal, A: App<Signal = S>> Widget for Divider<S, A> {
 			Vec2::ZERO
 		}
 	}
-
-	fn continuous_event_handling(&self) -> bool {
-		false
-	}
 }

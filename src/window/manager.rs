@@ -8,7 +8,7 @@ use winit::{application::ApplicationHandler, dpi::{PhysicalPosition, PhysicalSiz
 
 use crate::{math::{rect::Rect, vec2::Vec2}, render::{backend::{crate_wgpu_state, Uniform, WgpuState}, painter::Painter}, widgets::Signal, App, Context};
 
-use crate::layout::ROOT_LAYOUT_ID;
+// use crate::layout::ROOT_LAYOUT_ID;
 
 use super::event::{OutputEvent, Theme};
 
@@ -61,6 +61,14 @@ pub struct WindowSettings {
 	/// 
 	/// By default, the frame rate is set to 0.0.
 	pub draw_frame_rate: f32,
+	/// The quality factor of the window.
+	/// 
+	/// The quality factor is used to control the quality of the rendering.
+	/// 
+	/// By default, the quality factor is set to 1.0.
+	/// 
+	/// The lower the value, the lower the quality and the faster the rendering.
+	pub quality_factor: f32,
 }
 
 impl Default for WindowSettings {
@@ -77,6 +85,7 @@ impl Default for WindowSettings {
 			event_frame_rate: 0.0,
 			draw_frame_rate: 0.0,
 			theme: Theme::Dark,
+			quality_factor: 1.0,
 		}
 	}
 }
@@ -98,7 +107,7 @@ where A: App<Signal = S>,
 	// font_texture_to_upload: Vec<(Vec<u8>, char, FontId)>,
 }
 
-impl<'w, A, S> ApplicationHandler for Manager<'w, A, S> 
+impl<A, S> ApplicationHandler for Manager<'_, A, S> 
 where 
 	A: App<Signal = S>,
 	S: Signal + 'static,
@@ -151,7 +160,7 @@ where
 		if let winit::event::WindowEvent::Resized(size) = &event {
 			self.ctx.input_state.window_size = Vec2::new(size.width as f32, size.height as f32);
 			if let Some((window, state)) = &mut self.window {
-				state.resized(self.ctx.input_state.window_size);
+				state.resized(self.ctx.input_state.window_size, self.window_settings.quality_factor);
 				self.ctx.input_state.scale_factor = window.scale_factor();
 			}
 			self.ctx.layout.make_all_dirty();
@@ -187,7 +196,7 @@ where
 		if should_handle_events {
 			self.last_event_time = event_delta_time;
 			// self.ctx.layout.handle_continous_events(&mut self.ctx.input_state);
-			self.ctx.layout.handle_events(ROOT_LAYOUT_ID, &mut self.ctx.input_state, &mut self.app);
+			self.ctx.layout.handle_events(&mut self.ctx.input_state, &mut self.app);
 			let signals = self.ctx.input_state.signals_to_send.drain(..).collect::<Vec<_>>();
 			for signal in signals {
 				self.app.on_signal(&mut self.ctx, signal);
@@ -515,6 +524,17 @@ where A: App<Signal = S>,
 		Self {
 			window_settings: WindowSettings {
 				draw_frame_rate,
+				..self.window_settings
+			},
+			..self
+		}
+	}
+
+	/// Sets the quality factor of the window.
+	pub fn quality_factor(self, quality_factor: f32) -> Self {
+		Self {
+			window_settings: WindowSettings {
+				quality_factor,
 				..self.window_settings
 			},
 			..self

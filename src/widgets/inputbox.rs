@@ -2,7 +2,7 @@
 
 use crate::{layout::{Layout, LayoutId}, prelude::{AnimatedColor, Animatedf32, Color, FillMode, FontId, ImeString, InputState, Key, Painter, Rect, Vec2, Vec4}, App};
 
-use super::{styles::{BRIGHT_FACTOR, CONTENT_TEXT_SIZE, DEFAULT_PADDING, DEFAULT_ROUNDING, DISABLE_TEXT_COLOR, INPUT_BACKGROUND_COLOR, INPUT_BORDER_COLOR, PRIMARY_COLOR, SECONDARY_TEXT_COLOR, SELECTED_TEXT_COLOR}, Signal, SignalGenerator, Widget};
+use super::{styles::{BRIGHT_FACTOR, CONTENT_TEXT_SIZE, DEFAULT_PADDING, DEFAULT_ROUNDING, DISABLE_TEXT_COLOR, INPUT_BACKGROUND_COLOR, INPUT_BORDER_COLOR, PRIMARY_COLOR, SECONDARY_TEXT_COLOR, SELECTED_TEXT_COLOR}, EventHandleStrategy, Signal, SignalGenerator, Widget};
 
 /// The word splitter for the input box.
 pub static WORD_SPLITER: &[char] = &[' ', '\t', '\n', ';', ',', '.', ':', '!', '?', '(', ')', '[', ']', '{', '}', '<', '>', '/', '\\', '\'', '\"', '@', '#', '$', '%', '^', '&', '*', '-', '_', '+', '=', '|', '`', '~'];
@@ -844,8 +844,12 @@ impl<S: Signal, A: App<Signal = S>> Widget for InputBox<S, A> {
 		self.is_typing || self.inner.border_color.is_animating() || self.hover_factor.is_animating()
 	}
 
-	fn continuous_event_handling(&self) -> bool {
-		self.is_typing
+	fn event_handle_strategy(&self) -> super::EventHandleStrategy {
+		if self.is_typing {
+			EventHandleStrategy::AlwaysSecondary
+		}else {
+			EventHandleStrategy::OnHover
+		}
 	}
 }
 

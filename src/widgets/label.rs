@@ -222,8 +222,4 @@ impl<S: Signal, A: App<Signal = S>> Widget for Label<S, A> {
 
 		false
 	}
-
-	fn continuous_event_handling(&self) -> bool {
-		false
-	}
 }

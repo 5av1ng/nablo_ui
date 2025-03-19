@@ -745,8 +745,4 @@ impl<S: Signal, A: App<Signal = S>> Widget for Card<S, A> {
 	fn inner_padding(&self) -> Vec2 {
 		self.inner.layout_strategy.padding
 	}
-
-	fn continuous_event_handling(&self) -> bool {
-		false
-	}
 }
